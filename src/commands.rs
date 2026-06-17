@@ -32,6 +32,7 @@ pub async fn event(
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
+    let channel_id = ctx.channel_id();
     let title = validation::poll_title(title)?;
     let description = validation::optional_description(description)?;
     let when = validation::optional_when(when)?;
@@ -42,16 +43,14 @@ pub async fn event(
         description,
         when,
         choices,
-        ctx.data().config.channel_id.get(),
+        channel_id.get(),
         None,
         ctx.author().id.get(),
     );
 
     ctx.data().store.insert_poll(&poll).await?;
     let message = ctx
-        .data()
-        .config
-        .channel_id
+        .channel_id()
         .send_message(
             &ctx.serenity_context().http,
             render_poll_message(&poll, &[]),
@@ -68,7 +67,7 @@ pub async fn event(
         format!(
             "Created event poll: https://discord.com/channels/{}/{}/{}",
             ctx.data().config.guild_id,
-            ctx.data().config.channel_id,
+            channel_id,
             message.id
         ),
     )
@@ -87,6 +86,7 @@ pub async fn recurring(
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
+    let channel_id = ctx.channel_id();
     let title = validation::poll_title(title)?;
     let description = validation::optional_description(description)?;
     let template = template.map(validation::template_name).transpose()?;
@@ -105,7 +105,7 @@ pub async fn recurring(
         schedule,
         timezone,
         choices,
-        ctx.data().config.channel_id.get(),
+        channel_id.get(),
         ctx.author().id.get(),
         next_post_at,
     );
@@ -239,21 +239,38 @@ async fn resolve_choices(
 }
 
 async fn ensure_allowed_channel(ctx: Context<'_>) -> Result<(), Error> {
-    if ctx.channel_id() == ctx.data().config.channel_id {
+    if ctx
+        .data()
+        .config
+        .channel_ids
+        .iter()
+        .any(|channel_id| *channel_id == ctx.channel_id())
+    {
         return Ok(());
     }
 
+    let channels = ctx
+        .data()
+        .config
+        .channel_ids
+        .iter()
+        .map(|channel_id| format!("<#{channel_id}>"))
+        .collect::<Vec<_>>()
+        .join(", ");
     reply_ephemeral(
         ctx,
-        format!(
-            "Use this bot in <#{}>. I will ignore commands anywhere else.",
-            ctx.data().config.channel_id
-        ),
+        format!("Use this bot in {channels}. I will ignore commands anywhere else."),
     )
     .await?;
     Err(anyhow!(
-        "command used outside allowed channel {}",
-        ctx.data().config.channel_id
+        "command used outside allowed channels: {}",
+        ctx.data()
+            .config
+            .channel_ids
+            .iter()
+            .map(|channel_id| channel_id.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     ))
 }
 

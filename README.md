@@ -2,7 +2,7 @@
 
 <img src="assets/logo.png" alt="Urinal Fish logo" width="220">
 
-A small Rust Discord bot for planning nights out with friends. It creates event polls in one configured channel, lets people vote with buttons, remembers saved choice sets, and can post recurring event polls on a schedule.
+A small Rust Discord bot for planning nights out with friends. It creates event polls in configured Discord channels, lets people vote with buttons, remembers saved choice sets, and can post recurring event polls on a schedule.
 
 Built with [serenity](https://github.com/serenity-rs/serenity) and SQLite.
 
@@ -13,14 +13,23 @@ Built with [serenity](https://github.com/serenity-rs/serenity) and SQLite.
 - Arbitrary poll choices such as `yes,no,maybe,later`
 - Reusable choice sets with `/choice_save`, `/choice_list`, and `/choice_delete`
 - One vote per user per poll; pressing another button updates their vote
-- Locked to one Discord channel through `DISCORD_CHANNEL_ID`
+- Locked to configured Discord channels through `DISCORD_CHANNEL_IDS`
 - Docker Compose deployment for a Raspberry Pi
 - Local SQLite database stored in the Docker volume
 - Basic input hardening for poll text, choices, and template names
 
 ## Discord Setup
 
-Create a Discord application and bot in the Discord Developer Portal, then invite it to your server with:
+Create the Discord application:
+
+1. Go to <https://discord.com/developers/applications>.
+2. Click **New Application**.
+3. Name it **Urinal Fish**.
+4. Open **Bot** in the left sidebar.
+5. If you see username, icon, and token settings, the bot user already exists. Use **Reset Token** to reveal a fresh token, copy it once, and keep it private.
+6. If Discord shows an **Add Bot** button instead, click it, then copy the token.
+
+Invite it to your server from **OAuth2** -> **URL Generator** with these scopes:
 
 - `applications.commands`
 - `bot`
@@ -32,7 +41,9 @@ Bot permissions:
 - Embed Links
 - Use External Emojis is not required
 
-Copy the IDs for your guild and the channel where the bot should work. Enable Developer Mode in Discord, then right-click the server/channel and use "Copy ID".
+Open the generated URL, choose your server, and authorize the bot.
+
+Copy the IDs for your guild and the channels where the bot should work. Enable Developer Mode in Discord, then right-click the server/channel and use "Copy ID".
 
 ## Configure
 
@@ -47,11 +58,13 @@ Edit `.env`:
 ```env
 DISCORD_TOKEN=replace-me
 DISCORD_GUILD_ID=123456789012345678
-DISCORD_CHANNEL_ID=123456789012345678
+DISCORD_CHANNEL_IDS=123456789012345678,234567890123456789
 DATABASE_PATH=/data/bot.db
 DEFAULT_TIMEZONE=Europe/Malta
 SCHEDULER_INTERVAL_SECONDS=60
 ```
+
+For your setup, put the channel IDs for `a` and `urinal-test` in `DISCORD_CHANNEL_IDS`. Commands used in either channel will create polls in that same channel.
 
 ## Run
 
@@ -172,10 +185,10 @@ Back up the `./data` directory if you care about preserving old polls, saved cho
 ## Security Notes
 
 - SQL statements use bound parameters through SQLx instead of string-built queries.
-- Commands are rejected outside `DISCORD_CHANNEL_ID`.
+- Commands are rejected outside `DISCORD_CHANNEL_IDS`.
 - Poll titles, descriptions, "when" text, choices, and template names have length and character validation.
 - User-provided `@` mentions are neutralized before the bot reposts text into embeds/buttons.
-- The bot needs only Discord bot and slash-command permissions for the configured channel.
+- The bot needs only Discord bot and slash-command permissions for the configured channels.
 
 ## Notes
 
