@@ -68,28 +68,64 @@ pub struct RecurringSeries {
 }
 
 impl RecurringSeries {
-    pub fn new(
-        title: String,
-        description: Option<String>,
-        schedule: String,
-        timezone: Tz,
-        choices: Vec<String>,
-        channel_id: u64,
-        created_by: u64,
-        next_post_at: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(input: NewRecurringSeries) -> Self {
         Self {
             id: short_id(),
-            title,
-            description,
-            schedule,
-            timezone,
-            choices,
-            channel_id,
-            created_by,
-            next_post_at,
+            title: input.title,
+            description: input.description,
+            schedule: input.schedule,
+            timezone: input.timezone,
+            choices: input.choices,
+            channel_id: input.channel_id,
+            created_by: input.created_by,
+            next_post_at: input.next_post_at,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct NewRecurringSeries {
+    pub title: String,
+    pub description: Option<String>,
+    pub schedule: String,
+    pub timezone: Tz,
+    pub choices: Vec<String>,
+    pub channel_id: u64,
+    pub created_by: u64,
+    pub next_post_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EasterEggSettings {
+    pub enabled: bool,
+    pub target_user_id: u64,
+    pub channel_id: u64,
+    pub window_start_minute: u16,
+    pub window_end_minute: u16,
+    pub updated_by: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct EasterEggMessage {
+    pub id: String,
+    pub message: String,
+}
+
+impl EasterEggMessage {
+    pub fn new(message: String) -> Self {
+        Self {
+            id: short_id(),
+            message,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DueEasterEggTaunt {
+    pub run_date: String,
+    pub target_user_id: u64,
+    pub channel_id: u64,
+    pub message: String,
 }
 
 fn short_id() -> String {

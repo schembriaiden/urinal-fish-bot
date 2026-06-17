@@ -3,6 +3,7 @@ mod commands;
 mod components;
 mod config;
 mod discord;
+mod easter_egg;
 mod models;
 mod recurrence;
 mod scheduler;

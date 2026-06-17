@@ -176,6 +176,27 @@ Stop a recurring series:
 /series_delete id: abc12345
 ```
 
+Admin-only easter egg setup:
+
+```text
+/easter_set target: @person start_time: 09:00 end_time: 22:00 message: Bring a permission slip next time.
+```
+
+Add more easter egg messages:
+
+```text
+/easter_add_message message: Your planning skills need adult supervision.
+```
+
+Check or disable it:
+
+```text
+/easter_status
+/easter_disable
+```
+
+The easter egg uses the channel where `/easter_set` is run. Every day after 04:00 in `DEFAULT_TIMEZONE`, the bot rolls 1-20 once. If the roll is 11, it posts one configured message tagging the configured user at a random time between `start_time` and `end_time`.
+
 ## Single Pi Deployment
 
 This bot is designed to run as one Docker Compose stack on one Raspberry Pi. The SQLite database lives in `./data` on the host and is mounted into the container at `/data`.
@@ -188,6 +209,8 @@ Back up the `./data` directory if you care about preserving old polls, saved cho
 - Commands are rejected outside `DISCORD_CHANNEL_IDS`.
 - Poll titles, descriptions, "when" text, choices, and template names have length and character validation.
 - User-provided `@` mentions are neutralized before the bot reposts text into embeds/buttons.
+- Easter egg setup commands require Discord administrator permission.
+- Easter egg messages are stored in SQLite and mention-neutralized.
 - The bot needs only Discord bot and slash-command permissions for the configured channels.
 
 ## Notes

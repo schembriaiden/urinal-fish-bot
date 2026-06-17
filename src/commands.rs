@@ -1,10 +1,13 @@
 use anyhow::{Context as AnyhowContext, anyhow};
 use chrono::Utc;
-use poise::serenity_prelude::ChannelId;
+use poise::serenity_prelude::User;
 
 use crate::choices::{default_choices, parse_choices};
 use crate::discord::{format_discord_time, render_poll_message};
-use crate::models::{Poll, RecurringSeries};
+use crate::easter_egg;
+use crate::models::{
+    EasterEggMessage, EasterEggSettings, NewRecurringSeries, Poll, RecurringSeries,
+};
 use crate::recurrence::next_occurrence;
 use crate::validation;
 use crate::{Context, Error};
@@ -18,6 +21,10 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
         choice_delete(),
         series_list(),
         series_delete(),
+        easter_set(),
+        easter_add_message(),
+        easter_status(),
+        easter_disable(),
     ]
 }
 
@@ -99,16 +106,16 @@ pub async fn recurring(
     let next_post_at = next_occurrence(&schedule, timezone, Utc::now())
         .with_context(|| format!("could not parse schedule '{schedule}'"))?;
 
-    let series = RecurringSeries::new(
+    let series = RecurringSeries::new(NewRecurringSeries {
         title,
         description,
         schedule,
         timezone,
         choices,
-        channel_id.get(),
-        ctx.author().id.get(),
+        channel_id: channel_id.get(),
+        created_by: ctx.author().id.get(),
         next_post_at,
-    );
+    });
     ctx.data().store.insert_series(&series).await?;
 
     reply_ephemeral(
@@ -219,6 +226,148 @@ pub async fn series_delete(
     reply_ephemeral(ctx, message).await
 }
 
+#[poise::command(
+    slash_command,
+    default_member_permissions = "ADMINISTRATOR",
+    required_permissions = "ADMINISTRATOR"
+)]
+pub async fn easter_set(
+    ctx: Context<'_>,
+    #[description = "User to target"] target: User,
+    #[description = "Earliest send time, HH:MM, 04:00 or later"] start_time: String,
+    #[description = "Latest send time, HH:MM"] end_time: String,
+    #[description = "First message to add to the pool"] message: String,
+) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    let start_minute = easter_egg::parse_time(&start_time, "start_time")?;
+    let end_minute = easter_egg::parse_time(&end_time, "end_time")?;
+    easter_egg::validate_window(start_minute, end_minute)?;
+    let message = validation::clean_text(message, "easter egg message", 200)?;
+
+    let settings = EasterEggSettings {
+        enabled: true,
+        target_user_id: target.id.get(),
+        channel_id: ctx.channel_id().get(),
+        window_start_minute: start_minute,
+        window_end_minute: end_minute,
+        updated_by: ctx.author().id.get(),
+    };
+    ctx.data()
+        .store
+        .upsert_easter_egg_settings(&settings)
+        .await?;
+    ctx.data()
+        .store
+        .add_easter_egg_message(&EasterEggMessage::new(message), ctx.author().id.get())
+        .await?;
+
+    reply_ephemeral(
+        ctx,
+        format!(
+            "Easter egg enabled for <@{}> in <#{}>. Daily roll is at 04:00; on an 11, I will post between {} and {}.",
+            settings.target_user_id,
+            settings.channel_id,
+            easter_egg::format_time(settings.window_start_minute),
+            easter_egg::format_time(settings.window_end_minute)
+        ),
+    )
+    .await
+}
+
+#[poise::command(
+    slash_command,
+    default_member_permissions = "ADMINISTRATOR",
+    required_permissions = "ADMINISTRATOR"
+)]
+pub async fn easter_add_message(
+    ctx: Context<'_>,
+    #[description = "Message to add to the easter egg pool"] message: String,
+) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    let Some(settings) = ctx.data().store.easter_egg_settings().await? else {
+        return reply_ephemeral(ctx, "Use `/easter_set` first.".to_string()).await;
+    };
+    if !settings.enabled {
+        return reply_ephemeral(
+            ctx,
+            "The easter egg is disabled. Use `/easter_set` first.".to_string(),
+        )
+        .await;
+    }
+
+    let message = validation::clean_text(message, "easter egg message", 200)?;
+    ctx.data()
+        .store
+        .add_easter_egg_message(&EasterEggMessage::new(message), ctx.author().id.get())
+        .await?;
+
+    reply_ephemeral(ctx, "Added easter egg message.".to_string()).await
+}
+
+#[poise::command(
+    slash_command,
+    default_member_permissions = "ADMINISTRATOR",
+    required_permissions = "ADMINISTRATOR"
+)]
+pub async fn easter_status(ctx: Context<'_>) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    let Some(settings) = ctx.data().store.easter_egg_settings().await? else {
+        return reply_ephemeral(ctx, "Easter egg is not configured.".to_string()).await;
+    };
+    let messages = ctx.data().store.list_easter_egg_messages().await?;
+    let status = if settings.enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let preview = messages
+        .iter()
+        .take(5)
+        .map(|message| format!("- `{}`", message.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let preview = if preview.is_empty() {
+        "No messages configured.".to_string()
+    } else {
+        preview
+    };
+
+    reply_ephemeral(
+        ctx,
+        format!(
+            "Easter egg is {status}.\nTarget: <@{}>\nChannel: <#{}>\nWindow: {}-{}\nMessages: {}\n{}",
+            settings.target_user_id,
+            settings.channel_id,
+            easter_egg::format_time(settings.window_start_minute),
+            easter_egg::format_time(settings.window_end_minute),
+            messages.len(),
+            preview
+        ),
+    )
+    .await
+}
+
+#[poise::command(
+    slash_command,
+    default_member_permissions = "ADMINISTRATOR",
+    required_permissions = "ADMINISTRATOR"
+)]
+pub async fn easter_disable(ctx: Context<'_>) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    let disabled = ctx.data().store.disable_easter_egg().await?;
+    let message = if disabled {
+        "Easter egg disabled."
+    } else {
+        "Easter egg is not configured."
+    };
+
+    reply_ephemeral(ctx, message.to_string()).await
+}
+
 async fn resolve_choices(
     ctx: Context<'_>,
     choices: Option<String>,
@@ -282,10 +431,4 @@ async fn reply_ephemeral(ctx: Context<'_>, content: String) -> Result<(), Error>
     )
     .await?;
     Ok(())
-}
-
-#[allow(dead_code)]
-fn _assert_channel_id_send() {
-    fn assert_send<T: Send>() {}
-    assert_send::<ChannelId>();
 }

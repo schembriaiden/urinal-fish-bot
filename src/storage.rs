@@ -5,7 +5,10 @@ use chrono::{DateTime, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Executor, Row, SqlitePool};
 
-use crate::models::{ChoiceTemplate, Poll, RecurringSeries, Vote};
+use crate::models::{
+    ChoiceTemplate, DueEasterEggTaunt, EasterEggMessage, EasterEggSettings, Poll, RecurringSeries,
+    Vote,
+};
 
 #[derive(Clone)]
 pub struct Store {
@@ -14,10 +17,10 @@ pub struct Store {
 
 impl Store {
     pub async fn open(path: &str) -> Result<Self> {
-        if let Some(parent) = Path::new(path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = Path::new(path).parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         let options = SqliteConnectOptions::new()
@@ -80,6 +83,34 @@ impl Store {
                     next_post_at TEXT NOT NULL,
                     active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS easter_egg_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled INTEGER NOT NULL,
+                    target_user_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    window_start_minute INTEGER NOT NULL,
+                    window_end_minute INTEGER NOT NULL,
+                    updated_by INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS easter_egg_messages (
+                    id TEXT PRIMARY KEY,
+                    message TEXT NOT NULL,
+                    created_by INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS easter_egg_daily_runs (
+                    run_date TEXT PRIMARY KEY,
+                    roll INTEGER NOT NULL,
+                    scheduled_at TEXT,
+                    sent_at TEXT,
+                    target_user_id INTEGER,
+                    channel_id INTEGER,
+                    message TEXT
                 );
                 "#,
             )
@@ -294,6 +325,156 @@ impl Store {
 
         Ok(result.rows_affected() > 0)
     }
+
+    pub async fn upsert_easter_egg_settings(&self, settings: &EasterEggSettings) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO easter_egg_settings
+                (id, enabled, target_user_id, channel_id, window_start_minute,
+                 window_end_minute, updated_by, updated_at)
+            VALUES
+                (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(id)
+            DO UPDATE SET
+                enabled = excluded.enabled,
+                target_user_id = excluded.target_user_id,
+                channel_id = excluded.channel_id,
+                window_start_minute = excluded.window_start_minute,
+                window_end_minute = excluded.window_end_minute,
+                updated_by = excluded.updated_by,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(settings.enabled)
+        .bind(to_i64(settings.target_user_id)?)
+        .bind(to_i64(settings.channel_id)?)
+        .bind(i64::from(settings.window_start_minute))
+        .bind(i64::from(settings.window_end_minute))
+        .bind(to_i64(settings.updated_by)?)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn easter_egg_settings(&self) -> Result<Option<EasterEggSettings>> {
+        let row = sqlx::query(
+            r#"
+            SELECT enabled, target_user_id, channel_id, window_start_minute,
+                   window_end_minute, updated_by
+            FROM easter_egg_settings
+            WHERE id = 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(row_to_easter_egg_settings).transpose()
+    }
+
+    pub async fn disable_easter_egg(&self) -> Result<bool> {
+        let result = sqlx::query("UPDATE easter_egg_settings SET enabled = 0 WHERE id = 1")
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn add_easter_egg_message(
+        &self,
+        message: &EasterEggMessage,
+        created_by: u64,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO easter_egg_messages (id, message, created_by, created_at)
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+        )
+        .bind(&message.id)
+        .bind(&message.message)
+        .bind(to_i64(created_by)?)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_easter_egg_messages(&self) -> Result<Vec<EasterEggMessage>> {
+        let rows = sqlx::query("SELECT id, message FROM easter_egg_messages ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?;
+
+        rows.into_iter().map(row_to_easter_egg_message).collect()
+    }
+
+    pub async fn easter_egg_run_exists(&self, run_date: &str) -> Result<bool> {
+        let row = sqlx::query("SELECT 1 FROM easter_egg_daily_runs WHERE run_date = ?1")
+            .bind(run_date)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(row.is_some())
+    }
+
+    pub async fn record_easter_egg_roll(
+        &self,
+        run_date: &str,
+        roll: u8,
+        scheduled_at: Option<DateTime<Utc>>,
+        target_user_id: Option<u64>,
+        channel_id: Option<u64>,
+        message: Option<&str>,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO easter_egg_daily_runs
+                (run_date, roll, scheduled_at, target_user_id, channel_id, message)
+            VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+        )
+        .bind(run_date)
+        .bind(i64::from(roll))
+        .bind(scheduled_at.map(|time| time.to_rfc3339()))
+        .bind(target_user_id.map(to_i64).transpose()?)
+        .bind(channel_id.map(to_i64).transpose()?)
+        .bind(message)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn due_easter_egg_taunts(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<DueEasterEggTaunt>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT run_date, target_user_id, channel_id, message
+            FROM easter_egg_daily_runs
+            WHERE scheduled_at IS NOT NULL
+              AND sent_at IS NULL
+              AND scheduled_at <= ?1
+            ORDER BY scheduled_at
+            "#,
+        )
+        .bind(now.to_rfc3339())
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_due_easter_egg_taunt).collect()
+    }
+
+    pub async fn mark_easter_egg_sent(&self, run_date: &str, sent_at: DateTime<Utc>) -> Result<()> {
+        sqlx::query("UPDATE easter_egg_daily_runs SET sent_at = ?1 WHERE run_date = ?2")
+            .bind(sent_at.to_rfc3339())
+            .bind(run_date)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 fn row_to_poll(row: sqlx::sqlite::SqliteRow) -> Result<Poll> {
@@ -351,6 +532,33 @@ fn row_to_series(row: sqlx::sqlite::SqliteRow) -> Result<RecurringSeries> {
     })
 }
 
+fn row_to_easter_egg_settings(row: sqlx::sqlite::SqliteRow) -> Result<EasterEggSettings> {
+    Ok(EasterEggSettings {
+        enabled: row.try_get::<bool, _>("enabled")?,
+        target_user_id: to_u64(row.try_get::<i64, _>("target_user_id")?)?,
+        channel_id: to_u64(row.try_get::<i64, _>("channel_id")?)?,
+        window_start_minute: to_u16(row.try_get::<i64, _>("window_start_minute")?)?,
+        window_end_minute: to_u16(row.try_get::<i64, _>("window_end_minute")?)?,
+        updated_by: to_u64(row.try_get::<i64, _>("updated_by")?)?,
+    })
+}
+
+fn row_to_easter_egg_message(row: sqlx::sqlite::SqliteRow) -> Result<EasterEggMessage> {
+    Ok(EasterEggMessage {
+        id: row.try_get("id")?,
+        message: row.try_get("message")?,
+    })
+}
+
+fn row_to_due_easter_egg_taunt(row: sqlx::sqlite::SqliteRow) -> Result<DueEasterEggTaunt> {
+    Ok(DueEasterEggTaunt {
+        run_date: row.try_get("run_date")?,
+        target_user_id: to_u64(row.try_get::<i64, _>("target_user_id")?)?,
+        channel_id: to_u64(row.try_get::<i64, _>("channel_id")?)?,
+        message: row.try_get("message")?,
+    })
+}
+
 fn parse_utc(value: &str) -> Result<DateTime<Utc>> {
     Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
 }
@@ -361,4 +569,8 @@ fn to_i64(value: u64) -> Result<i64> {
 
 fn to_u64(value: i64) -> Result<u64> {
     u64::try_from(value).context("stored Discord ID was negative")
+}
+
+fn to_u16(value: i64) -> Result<u16> {
+    u16::try_from(value).context("stored minute value did not fit in u16")
 }
