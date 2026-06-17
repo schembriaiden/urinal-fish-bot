@@ -16,7 +16,6 @@ use crate::{Context, Error};
 pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
     vec![
         event(),
-        recurring(),
         series_list(),
         series_delete(),
         easter_set(),
@@ -26,8 +25,15 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
     ]
 }
 
+/// Create event polls.
+#[poise::command(slash_command, subcommands("single", "recurring"), subcommand_required)]
+pub async fn event(_: Context<'_>) -> Result<(), Error> {
+    Ok(())
+}
+
+/// Create a one-off event poll.
 #[poise::command(slash_command)]
-pub async fn event(
+pub async fn single(
     ctx: Context<'_>,
     #[description = "Event title"] title: String,
     #[description = "When this is happening"] when: String,
@@ -87,6 +93,7 @@ pub async fn event(
     .await
 }
 
+/// Create a recurring event series.
 #[poise::command(slash_command)]
 pub async fn recurring(
     ctx: Context<'_>,

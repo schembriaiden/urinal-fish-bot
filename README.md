@@ -2,14 +2,14 @@
 
 <img src="assets/logo.png" alt="Urinal Fish logo" width="220">
 
-A small Rust Discord bot for planning nights out with friends. It creates event polls in configured Discord channels, lets people vote with buttons, remembers saved choice sets, and can post recurring event polls on a schedule.
+A small Rust Discord bot for planning nights out with friends. It creates event polls in configured Discord channels, lets people vote with buttons, remembers previous choice sets, and can post recurring event polls on a schedule.
 
 Built with [serenity](https://github.com/serenity-rs/serenity) and SQLite.
 
 ## Features
 
-- One-off event polls with `/event`
-- Recurring event series with `/recurring`
+- One-off event polls with `/event single`
+- Recurring event series with `/event recurring`
 - Arbitrary poll choices such as `yes,no,maybe,later`
 - Previously used choice sets are remembered and suggested while typing
 - One vote per user per poll; pressing another button updates their vote
@@ -130,19 +130,19 @@ cargo fmt
 Create a one-off event:
 
 ```text
-/event title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe description: Meet outside the pub
+/event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe description: Meet outside the pub
 ```
 
 Create a one-off event with custom choices. The bot remembers these and suggests them the next time you type `choices`:
 
 ```text
-/event title: Food after work when: Friday 18:30 choices: pizza,sushi,no,maybe
+/event single title: Food after work when: Friday 18:30 choices: pizza,sushi,no,maybe
 ```
 
 Create a recurring event:
 
 ```text
-/recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe
+/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe
 ```
 
 Supported recurring schedules:
