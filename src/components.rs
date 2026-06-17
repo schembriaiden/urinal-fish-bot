@@ -2,6 +2,7 @@ use anyhow::{Context as AnyhowContext, Result, anyhow};
 use poise::serenity_prelude::{
     ComponentInteraction, Context, CreateInteractionResponse, CreateInteractionResponseMessage,
 };
+use tracing::info;
 
 use crate::Data;
 use crate::discord::{render_poll_buttons, render_poll_embed};
@@ -33,6 +34,12 @@ pub async fn handle_component(
     data.store
         .set_response(&poll.id, component.user.id.get(), &choice)
         .await?;
+    info!(
+        poll_id = %poll.id,
+        user_id = component.user.id.get(),
+        choice = %choice,
+        "recorded poll vote"
+    );
     let responses = data.store.poll_responses(&poll.id).await?;
     let response = CreateInteractionResponse::UpdateMessage(
         CreateInteractionResponseMessage::new()

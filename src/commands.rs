@@ -1,6 +1,7 @@
 use anyhow::{Context as AnyhowContext, anyhow};
 use chrono::Utc;
 use poise::serenity_prelude::User;
+use tracing::{info, warn};
 
 use crate::choices::{default_choices, parse_choices};
 use crate::discord::{format_discord_time, render_poll_message};
@@ -16,9 +17,6 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
     vec![
         event(),
         recurring(),
-        choice_save(),
-        choice_list(),
-        choice_delete(),
         series_list(),
         series_delete(),
         easter_set(),
@@ -32,19 +30,20 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
 pub async fn event(
     ctx: Context<'_>,
     #[description = "Event title"] title: String,
-    #[description = "When this is happening"] when: Option<String>,
+    #[description = "When this is happening"] when: String,
     #[description = "Extra details"] description: Option<String>,
-    #[description = "Comma-separated choices, for example: yes,no,maybe"] choices: Option<String>,
-    #[description = "Saved choice set name from /choice_list"] template: Option<String>,
+    #[description = "Comma-separated choices, for example: yes,no,maybe"]
+    #[autocomplete = "autocomplete_choices"]
+    choices: String,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
     let channel_id = ctx.channel_id();
     let title = validation::poll_title(title)?;
     let description = validation::optional_description(description)?;
-    let when = validation::optional_when(when)?;
-    let template = template.map(validation::template_name).transpose()?;
-    let choices = resolve_choices(ctx, choices, template).await?;
+    let when = validation::optional_when(Some(when))?;
+    let choices = parse_choices(&choices)?;
+    ctx.data().store.record_choice_history(&choices).await?;
     let poll = Poll::new(
         title,
         description,
@@ -68,6 +67,13 @@ pub async fn event(
         .store
         .set_poll_message(&poll.id, message.id.get())
         .await?;
+    info!(
+        poll_id = %poll.id,
+        channel_id = channel_id.get(),
+        message_id = message.id.get(),
+        created_by = ctx.author().id.get(),
+        "created event poll"
+    );
 
     reply_ephemeral(
         ctx,
@@ -87,8 +93,9 @@ pub async fn recurring(
     #[description = "Event title"] title: String,
     #[description = "daily 19:00, weekly fri 20:00, or monthly 15 19:30"] schedule: String,
     #[description = "Extra details"] description: Option<String>,
-    #[description = "Comma-separated choices, for example: yes,no,maybe"] choices: Option<String>,
-    #[description = "Saved choice set name from /choice_list"] template: Option<String>,
+    #[description = "Comma-separated choices, for example: yes,no,maybe"]
+    #[autocomplete = "autocomplete_choices"]
+    choices: String,
     #[description = "IANA timezone, default comes from DEFAULT_TIMEZONE"] timezone: Option<String>,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
@@ -96,13 +103,13 @@ pub async fn recurring(
     let channel_id = ctx.channel_id();
     let title = validation::poll_title(title)?;
     let description = validation::optional_description(description)?;
-    let template = template.map(validation::template_name).transpose()?;
     let timezone = timezone
         .map(|value| value.parse())
         .transpose()
         .context("timezone must be an IANA timezone like Europe/Malta")?
         .unwrap_or(ctx.data().config.default_timezone);
-    let choices = resolve_choices(ctx, choices, template).await?;
+    let choices = parse_choices(&choices)?;
+    ctx.data().store.record_choice_history(&choices).await?;
     let next_post_at = next_occurrence(&schedule, timezone, Utc::now())
         .with_context(|| format!("could not parse schedule '{schedule}'"))?;
 
@@ -117,6 +124,13 @@ pub async fn recurring(
         next_post_at,
     });
     ctx.data().store.insert_series(&series).await?;
+    info!(
+        series_id = %series.id,
+        channel_id = channel_id.get(),
+        created_by = ctx.author().id.get(),
+        next_post_at = %series.next_post_at,
+        "created recurring event series"
+    );
 
     reply_ephemeral(
         ctx,
@@ -127,60 +141,6 @@ pub async fn recurring(
         ),
     )
     .await
-}
-
-#[poise::command(slash_command)]
-pub async fn choice_save(
-    ctx: Context<'_>,
-    #[description = "Name for this choice set"] name: String,
-    #[description = "Comma-separated choices, for example: yes,no,maybe"] choices: String,
-) -> Result<(), Error> {
-    ensure_allowed_channel(ctx).await?;
-
-    let name = validation::template_name(name)?;
-    let choices = parse_choices(&choices)?;
-    ctx.data()
-        .store
-        .save_template(&name, &choices, ctx.author().id.get())
-        .await?;
-
-    reply_ephemeral(ctx, format!("Saved `{name}` as: {}", choices.join(", "))).await
-}
-
-#[poise::command(slash_command)]
-pub async fn choice_list(ctx: Context<'_>) -> Result<(), Error> {
-    ensure_allowed_channel(ctx).await?;
-
-    let templates = ctx.data().store.list_templates().await?;
-    let body = if templates.is_empty() {
-        "No saved choice sets yet. Use `/choice_save` to create one.".to_string()
-    } else {
-        templates
-            .into_iter()
-            .map(|template| format!("`{}`: {}", template.name, template.choices.join(", ")))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
-    reply_ephemeral(ctx, body).await
-}
-
-#[poise::command(slash_command)]
-pub async fn choice_delete(
-    ctx: Context<'_>,
-    #[description = "Choice set name"] name: String,
-) -> Result<(), Error> {
-    ensure_allowed_channel(ctx).await?;
-
-    let name = validation::template_name(name)?;
-    let deleted = ctx.data().store.delete_template(&name).await?;
-    let message = if deleted {
-        format!("Deleted choice set `{name}`.")
-    } else {
-        format!("I could not find a choice set named `{name}`.")
-    };
-
-    reply_ephemeral(ctx, message).await
 }
 
 #[poise::command(slash_command)]
@@ -261,6 +221,12 @@ pub async fn easter_set(
         .store
         .add_easter_egg_message(&EasterEggMessage::new(message), ctx.author().id.get())
         .await?;
+    info!(
+        target_user_id = settings.target_user_id,
+        channel_id = settings.channel_id,
+        updated_by = settings.updated_by,
+        "configured easter egg"
+    );
 
     reply_ephemeral(
         ctx,
@@ -302,6 +268,10 @@ pub async fn easter_add_message(
         .store
         .add_easter_egg_message(&EasterEggMessage::new(message), ctx.author().id.get())
         .await?;
+    info!(
+        created_by = ctx.author().id.get(),
+        "added easter egg message"
+    );
 
     reply_ephemeral(ctx, "Added easter egg message.".to_string()).await
 }
@@ -359,6 +329,11 @@ pub async fn easter_disable(ctx: Context<'_>) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
     let disabled = ctx.data().store.disable_easter_egg().await?;
+    info!(
+        disabled,
+        updated_by = ctx.author().id.get(),
+        "disabled easter egg"
+    );
     let message = if disabled {
         "Easter egg disabled."
     } else {
@@ -366,25 +341,6 @@ pub async fn easter_disable(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     reply_ephemeral(ctx, message.to_string()).await
-}
-
-async fn resolve_choices(
-    ctx: Context<'_>,
-    choices: Option<String>,
-    template: Option<String>,
-) -> Result<Vec<String>, Error> {
-    if let Some(raw_choices) = choices {
-        return parse_choices(&raw_choices);
-    }
-
-    if let Some(template) = template {
-        let Some(template) = ctx.data().store.get_template(&template).await? else {
-            return Err(anyhow!("choice template `{template}` was not found"));
-        };
-        return Ok(template.choices);
-    }
-
-    Ok(default_choices())
 }
 
 async fn ensure_allowed_channel(ctx: Context<'_>) -> Result<(), Error> {
@@ -411,6 +367,11 @@ async fn ensure_allowed_channel(ctx: Context<'_>) -> Result<(), Error> {
         format!("Use this bot in {channels}. I will ignore commands anywhere else."),
     )
     .await?;
+    warn!(
+        channel_id = ctx.channel_id().get(),
+        user_id = ctx.author().id.get(),
+        "rejected command outside allowed channels"
+    );
     Err(anyhow!(
         "command used outside allowed channels: {}",
         ctx.data()
@@ -431,4 +392,27 @@ async fn reply_ephemeral(ctx: Context<'_>, content: String) -> Result<(), Error>
     )
     .await?;
     Ok(())
+}
+
+async fn autocomplete_choices(ctx: Context<'_>, partial: &str) -> Vec<String> {
+    let mut suggestions = vec![default_choices().join(", ")];
+
+    match ctx.data().store.recent_choice_sets(partial, 24).await {
+        Ok(history) => suggestions.extend(history),
+        Err(err) => warn!("failed to load choice autocomplete suggestions: {err:?}"),
+    }
+
+    let partial = partial.trim().to_lowercase();
+    suggestions
+        .into_iter()
+        .filter(|choice_set| partial.is_empty() || choice_set.to_lowercase().contains(&partial))
+        .fold(Vec::new(), |mut unique, choice_set| {
+            if unique.iter().all(|existing| existing != &choice_set) {
+                unique.push(choice_set);
+            }
+            unique
+        })
+        .into_iter()
+        .take(25)
+        .collect()
 }

@@ -43,12 +43,6 @@ impl Poll {
 }
 
 #[derive(Debug, Clone)]
-pub struct ChoiceTemplate {
-    pub name: String,
-    pub choices: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct Vote {
     pub user_id: u64,
     pub choice: String,

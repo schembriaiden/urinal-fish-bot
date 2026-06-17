@@ -60,6 +60,16 @@ async fn main() -> Result<()> {
 
     let config = Config::from_env()?;
     let token = config.token.clone();
+    info!(
+        guild_id = config.guild_id.get(),
+        channels = ?config
+            .channel_ids
+            .iter()
+            .map(|channel_id| channel_id.get())
+            .collect::<Vec<_>>(),
+        database_path = %config.database_path,
+        "loaded bot configuration"
+    );
     let store = Store::open(&config.database_path).await?;
     let data = Data { config, store };
     let setup_data = data.clone();
@@ -80,7 +90,12 @@ async fn main() -> Result<()> {
                     .set_commands(&ctx.http, commands)
                     .await
                     .context("failed to register guild slash commands")?;
-                info!("{} is connected", ready.user.name);
+                info!(
+                    bot_name = %ready.user.name,
+                    guild_id = data.config.guild_id.get(),
+                    command_count = framework.options().commands.len(),
+                    "registered guild slash commands"
+                );
 
                 tokio::spawn(scheduler::run(Arc::new(data.clone()), ctx.http.clone()));
                 Ok(data)

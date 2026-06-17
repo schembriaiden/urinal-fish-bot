@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Executor, Row, SqlitePool};
+use tracing::info;
 
 use crate::models::{
-    ChoiceTemplate, DueEasterEggTaunt, EasterEggMessage, EasterEggSettings, Poll, RecurringSeries,
-    Vote,
+    DueEasterEggTaunt, EasterEggMessage, EasterEggSettings, Poll, RecurringSeries, Vote,
 };
 
 #[derive(Clone)]
@@ -35,6 +35,7 @@ impl Store {
             .with_context(|| format!("failed to open SQLite database at {path}"))?;
         let store = Self { pool };
         store.migrate().await?;
+        info!(database_path = %path, "opened SQLite database");
         Ok(store)
     }
 
@@ -42,11 +43,12 @@ impl Store {
         self.pool
             .execute(
                 r#"
-                CREATE TABLE IF NOT EXISTS choice_templates (
-                    name TEXT PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS choice_history (
+                    normalized TEXT PRIMARY KEY,
                     choices_json TEXT NOT NULL,
-                    created_by INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
+                    display_text TEXT NOT NULL,
+                    use_count INTEGER NOT NULL,
+                    last_used_at TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS polls (
@@ -196,53 +198,52 @@ impl Store {
         rows.into_iter().map(row_to_vote).collect()
     }
 
-    pub async fn save_template(
-        &self,
-        name: &str,
-        choices: &[String],
-        created_by: u64,
-    ) -> Result<()> {
+    pub async fn record_choice_history(&self, choices: &[String]) -> Result<()> {
+        let display_text = choices.join(", ");
+        let normalized = normalize_choices(choices);
+
         sqlx::query(
             r#"
-            INSERT INTO choice_templates (name, choices_json, created_by, created_at)
-            VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(name)
-            DO UPDATE SET choices_json = excluded.choices_json
+            INSERT INTO choice_history
+                (normalized, choices_json, display_text, use_count, last_used_at)
+            VALUES
+                (?1, ?2, ?3, 1, ?4)
+            ON CONFLICT(normalized)
+            DO UPDATE SET
+                choices_json = excluded.choices_json,
+                display_text = excluded.display_text,
+                use_count = choice_history.use_count + 1,
+                last_used_at = excluded.last_used_at
             "#,
         )
-        .bind(name)
+        .bind(normalized)
         .bind(serde_json::to_string(choices)?)
-        .bind(to_i64(created_by)?)
+        .bind(display_text)
         .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    pub async fn get_template(&self, name: &str) -> Result<Option<ChoiceTemplate>> {
-        let row = sqlx::query("SELECT name, choices_json FROM choice_templates WHERE name = ?1")
-            .bind(name)
-            .fetch_optional(&self.pool)
-            .await?;
+    pub async fn recent_choice_sets(&self, partial: &str, limit: u32) -> Result<Vec<String>> {
+        let pattern = format!("%{}%", partial.trim().to_lowercase());
+        let rows = sqlx::query(
+            r#"
+            SELECT display_text
+            FROM choice_history
+            WHERE LOWER(display_text) LIKE ?1
+            ORDER BY last_used_at DESC, use_count DESC
+            LIMIT ?2
+            "#,
+        )
+        .bind(pattern)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
 
-        row.map(row_to_template).transpose()
-    }
-
-    pub async fn list_templates(&self) -> Result<Vec<ChoiceTemplate>> {
-        let rows = sqlx::query("SELECT name, choices_json FROM choice_templates ORDER BY name")
-            .fetch_all(&self.pool)
-            .await?;
-
-        rows.into_iter().map(row_to_template).collect()
-    }
-
-    pub async fn delete_template(&self, name: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM choice_templates WHERE name = ?1")
-            .bind(name)
-            .execute(&self.pool)
-            .await?;
-
-        Ok(result.rows_affected() > 0)
+        rows.into_iter()
+            .map(|row| row.try_get("display_text").map_err(Into::into))
+            .collect()
     }
 
     pub async fn insert_series(&self, series: &RecurringSeries) -> Result<()> {
@@ -505,15 +506,6 @@ fn row_to_vote(row: sqlx::sqlite::SqliteRow) -> Result<Vote> {
     })
 }
 
-fn row_to_template(row: sqlx::sqlite::SqliteRow) -> Result<ChoiceTemplate> {
-    let choices_json: String = row.try_get("choices_json")?;
-
-    Ok(ChoiceTemplate {
-        name: row.try_get("name")?,
-        choices: serde_json::from_str(&choices_json)?,
-    })
-}
-
 fn row_to_series(row: sqlx::sqlite::SqliteRow) -> Result<RecurringSeries> {
     let timezone: String = row.try_get("timezone")?;
     let choices_json: String = row.try_get("choices_json")?;
@@ -573,4 +565,48 @@ fn to_u64(value: i64) -> Result<u64> {
 
 fn to_u16(value: i64) -> Result<u16> {
     u16::try_from(value).context("stored minute value did not fit in u16")
+}
+
+fn normalize_choices(choices: &[String]) -> String {
+    choices
+        .iter()
+        .map(|choice| choice.trim().to_lowercase())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn records_and_suggests_recent_choice_sets() {
+        let path =
+            std::env::temp_dir().join(format!("urinal-fish-test-{}.db", uuid::Uuid::new_v4()));
+        let path = path.to_string_lossy().into_owned();
+        let store = Store::open(&path).await.unwrap();
+
+        store
+            .record_choice_history(&["yes".into(), "no".into(), "maybe".into()])
+            .await
+            .unwrap();
+        store
+            .record_choice_history(&["Pizza".into(), "Sushi".into(), "No".into()])
+            .await
+            .unwrap();
+
+        let suggestions = store.recent_choice_sets("piz", 10).await.unwrap();
+
+        assert_eq!(suggestions, ["Pizza, Sushi, No"]);
+
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn normalizes_choices_case_insensitively() {
+        let normalized = normalize_choices(&[" Yes ".into(), "NO".into()]);
+
+        assert_eq!(normalized, "yes\nno");
+    }
 }

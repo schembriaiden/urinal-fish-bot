@@ -11,12 +11,12 @@ Built with [serenity](https://github.com/serenity-rs/serenity) and SQLite.
 - One-off event polls with `/event`
 - Recurring event series with `/recurring`
 - Arbitrary poll choices such as `yes,no,maybe,later`
-- Reusable choice sets with `/choice_save`, `/choice_list`, and `/choice_delete`
+- Previously used choice sets are remembered and suggested while typing
 - One vote per user per poll; pressing another button updates their vote
 - Locked to configured Discord channels through `DISCORD_CHANNEL_IDS`
 - Docker Compose deployment for a Raspberry Pi
 - Local SQLite database stored in the Docker volume
-- Basic input hardening for poll text, choices, and template names
+- Basic input hardening for poll text and choices
 
 ## Discord Setup
 
@@ -127,34 +127,22 @@ cargo fmt
 
 ## Commands
 
-Create a one-off event with default choices `yes`, `no`, `maybe`:
+Create a one-off event:
 
 ```text
-/event title: Drinks Friday when: Friday 20:00 description: Meet outside the pub
+/event title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe description: Meet outside the pub
 ```
 
-Create a one-off event with custom choices:
+Create a one-off event with custom choices. The bot remembers these and suggests them the next time you type `choices`:
 
 ```text
-/event title: Food after work choices: pizza,sushi,no,maybe
-```
-
-Save a reusable choice set:
-
-```text
-/choice_save name: going choices: yes,no,maybe,later
-```
-
-Use a saved choice set:
-
-```text
-/event title: Beach day template: going when: Sunday 10:00
+/event title: Food after work when: Friday 18:30 choices: pizza,sushi,no,maybe
 ```
 
 Create a recurring event:
 
 ```text
-/recurring title: Friday drinks schedule: weekly fri 20:00 template: going
+/recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe
 ```
 
 Supported recurring schedules:
@@ -207,7 +195,7 @@ Back up the `./data` directory if you care about preserving old polls, saved cho
 
 - SQL statements use bound parameters through SQLx instead of string-built queries.
 - Commands are rejected outside `DISCORD_CHANNEL_IDS`.
-- Poll titles, descriptions, "when" text, choices, and template names have length and character validation.
+- Poll titles, descriptions, "when" text, and choices have length and character validation.
 - User-provided `@` mentions are neutralized before the bot reposts text into embeds/buttons.
 - Easter egg setup commands require Discord administrator permission.
 - Easter egg messages are stored in SQLite and mention-neutralized.

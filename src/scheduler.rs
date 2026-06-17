@@ -47,7 +47,14 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
             Ok(message) => {
                 data.store
                     .set_poll_message(&poll.id, message.id.get())
-                    .await?
+                    .await?;
+                info!(
+                    series_id = %series.id,
+                    poll_id = %poll.id,
+                    channel_id = series.channel_id,
+                    message_id = message.id.get(),
+                    "posted recurring poll"
+                );
             }
             Err(err) => {
                 error!("failed to post recurring poll {}: {err:?}", series.id);
@@ -143,6 +150,12 @@ async fn send_due_easter_egg_taunts(
                 data.store
                     .mark_easter_egg_sent(&taunt.run_date, Utc::now())
                     .await?;
+                info!(
+                    run_date = %taunt.run_date,
+                    channel_id = taunt.channel_id,
+                    target_user_id = taunt.target_user_id,
+                    "posted easter egg taunt"
+                );
             }
             Err(err) => {
                 error!(
