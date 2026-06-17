@@ -7,7 +7,8 @@ use crate::choices::{default_choices, parse_choices};
 use crate::discord::{format_discord_time, render_poll_message};
 use crate::easter_egg;
 use crate::models::{
-    EasterEggMessage, EasterEggSettings, NewRecurringSeries, Poll, RecurringSeries,
+    EasterEggMessage, EasterEggSettings, NewRecurringSeries, Poll, PollNotification,
+    RecurringSeries,
 };
 use crate::recurrence::next_occurrence;
 use crate::validation;
@@ -41,6 +42,8 @@ pub async fn single(
     #[description = "Comma-separated choices, for example: yes,no,maybe"]
     #[autocomplete = "autocomplete_choices"]
     choices: String,
+    #[description = "Optional users or roles to ping, for example: @friends @Philip"]
+    notify: Option<String>,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
@@ -49,6 +52,7 @@ pub async fn single(
     let description = validation::optional_description(description)?;
     let when = validation::optional_when(Some(when))?;
     let choices = parse_choices(&choices)?;
+    let notification = parse_notification(notify)?;
     ctx.data().store.record_choice_history(&choices).await?;
     let poll = Poll::new(
         title,
@@ -65,7 +69,7 @@ pub async fn single(
         .channel_id()
         .send_message(
             &ctx.serenity_context().http,
-            render_poll_message(&poll, &[]),
+            render_poll_message(&poll, &[], notification.as_ref()),
         )
         .await
         .context("failed to send poll message")?;
@@ -103,6 +107,8 @@ pub async fn recurring(
     #[description = "Comma-separated choices, for example: yes,no,maybe"]
     #[autocomplete = "autocomplete_choices"]
     choices: String,
+    #[description = "Optional users or roles to ping whenever the recurring poll posts"]
+    notify: Option<String>,
     #[description = "IANA timezone, default comes from DEFAULT_TIMEZONE"] timezone: Option<String>,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
@@ -116,6 +122,7 @@ pub async fn recurring(
         .context("timezone must be an IANA timezone like Europe/Malta")?
         .unwrap_or(ctx.data().config.default_timezone);
     let choices = parse_choices(&choices)?;
+    let notification = parse_notification(notify)?;
     ctx.data().store.record_choice_history(&choices).await?;
     let next_post_at = next_occurrence(&schedule, timezone, Utc::now())
         .with_context(|| format!("could not parse schedule '{schedule}'"))?;
@@ -126,6 +133,7 @@ pub async fn recurring(
         schedule,
         timezone,
         choices,
+        notification,
         channel_id: channel_id.get(),
         created_by: ctx.author().id.get(),
         next_post_at,
@@ -401,6 +409,68 @@ async fn reply_ephemeral(ctx: Context<'_>, content: String) -> Result<(), Error>
     Ok(())
 }
 
+fn parse_notification(value: Option<String>) -> Result<Option<PollNotification>, Error> {
+    let Some(value) = value.map(|value| value.trim().to_string()) else {
+        return Ok(None);
+    };
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    let tokens = value
+        .split(|character: char| character.is_whitespace() || character == ',')
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let mut user_ids = Vec::new();
+    let mut role_ids = Vec::new();
+
+    for token in tokens {
+        if let Some(user_id) = parse_user_mention(token) {
+            if !user_ids.contains(&user_id) {
+                user_ids.push(user_id);
+            }
+            continue;
+        }
+        if let Some(role_id) = parse_role_mention(token) {
+            if !role_ids.contains(&role_id) {
+                role_ids.push(role_id);
+            }
+            continue;
+        }
+        return Err(anyhow!(
+            "notify can only contain user or role mentions, like @Philip or @friends"
+        ));
+    }
+
+    if user_ids.is_empty() && role_ids.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(PollNotification {
+        content: user_ids
+            .iter()
+            .map(|user_id| format!("<@{user_id}>"))
+            .chain(role_ids.iter().map(|role_id| format!("<@&{role_id}>")))
+            .collect::<Vec<_>>()
+            .join(" "),
+        user_ids,
+        role_ids,
+    }))
+}
+
+fn parse_user_mention(token: &str) -> Option<u64> {
+    let token = token.strip_prefix("<@")?.strip_suffix('>')?;
+    let token = token.strip_prefix('!').unwrap_or(token);
+    if token.starts_with('&') {
+        return None;
+    }
+    token.parse().ok()
+}
+
+fn parse_role_mention(token: &str) -> Option<u64> {
+    token.strip_prefix("<@&")?.strip_suffix('>')?.parse().ok()
+}
+
 async fn autocomplete_choices(ctx: Context<'_>, partial: &str) -> Vec<String> {
     let mut suggestions = vec![default_choices().join(", ")];
 
@@ -422,4 +492,29 @@ async fn autocomplete_choices(ctx: Context<'_>, partial: &str) -> Vec<String> {
         .into_iter()
         .take(25)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_notification_mentions() {
+        let notification = parse_notification(Some("<@123> <@&456>".to_string()))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(notification.content, "<@123> <@&456>");
+        assert_eq!(notification.user_ids, [123]);
+        assert_eq!(notification.role_ids, [456]);
+    }
+
+    #[test]
+    fn rejects_non_mention_notification_text() {
+        let error = parse_notification(Some("@everyone hello".to_string()))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("user or role mentions"));
+    }
 }

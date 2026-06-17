@@ -56,6 +56,7 @@ pub struct RecurringSeries {
     pub schedule: String,
     pub timezone: Tz,
     pub choices: Vec<String>,
+    pub notification: Option<PollNotification>,
     pub channel_id: u64,
     pub created_by: u64,
     pub next_post_at: DateTime<Utc>,
@@ -70,11 +71,19 @@ impl RecurringSeries {
             schedule: input.schedule,
             timezone: input.timezone,
             choices: input.choices,
+            notification: input.notification,
             channel_id: input.channel_id,
             created_by: input.created_by,
             next_post_at: input.next_post_at,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PollNotification {
+    pub content: String,
+    pub user_ids: Vec<u64>,
+    pub role_ids: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +93,7 @@ pub struct NewRecurringSeries {
     pub schedule: String,
     pub timezone: Tz,
     pub choices: Vec<String>,
+    pub notification: Option<PollNotification>,
     pub channel_id: u64,
     pub created_by: u64,
     pub next_post_at: DateTime<Utc>,

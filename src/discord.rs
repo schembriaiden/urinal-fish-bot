@@ -1,14 +1,27 @@
 use chrono::{DateTime, Utc};
 use poise::serenity_prelude::{
-    ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter, CreateMessage,
+    ButtonStyle, CreateActionRow, CreateAllowedMentions, CreateButton, CreateEmbed,
+    CreateEmbedFooter, CreateMessage, RoleId, UserId,
 };
 
-use crate::models::{Poll, Vote};
+use crate::models::{Poll, PollNotification, Vote};
 
-pub fn render_poll_message(poll: &Poll, responses: &[Vote]) -> CreateMessage {
-    CreateMessage::new()
+pub fn render_poll_message(
+    poll: &Poll,
+    responses: &[Vote],
+    notification: Option<&PollNotification>,
+) -> CreateMessage {
+    let mut message = CreateMessage::new()
         .embed(render_poll_embed(poll, responses))
-        .components(render_poll_buttons(poll, responses))
+        .components(render_poll_buttons(poll, responses));
+
+    if let Some(notification) = notification {
+        message = message
+            .content(&notification.content)
+            .allowed_mentions(notification_allowed_mentions(notification));
+    }
+
+    message
 }
 
 pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
@@ -18,34 +31,43 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
         description.push(details.to_string());
     }
     description.push(format!(
-        "**When**\n{}\n\n**Created by** <@{}>  •  **Total votes** {}",
+        "**When**\n{}\n\n**Total votes** {}",
         poll.when.as_deref().unwrap_or("Not specified"),
-        poll.created_by,
         total_votes
     ));
 
     let mut embed = CreateEmbed::new()
         .title(&poll.title)
         .color(0x2f9eaa)
-        .description(description.join("\n\n"))
-        .timestamp(poll.created_at);
+        .description(description.join("\n\n"));
 
-    for choice in &poll.choices {
+    for (index, choice) in poll.choices.iter().enumerate() {
         let users = voters_for_choice(responses, choice);
         let count = users.len();
         let value = if users.is_empty() {
-            "_Nobody yet_".to_string()
+            format!("**{} {}**\n_Nobody yet_", count, pluralize_vote(count))
         } else {
-            users.join("  ")
+            format!(
+                "**{} {}**\n{}",
+                count,
+                pluralize_vote(count),
+                users.join("\n")
+            )
         };
-        embed = embed.field(
-            format!("{choice} - {} {}", count, pluralize_vote(count)),
-            value,
-            true,
-        );
+        embed = embed.field(response_title(choice, index), value, true);
     }
 
-    embed.footer(CreateEmbedFooter::new(format!("Poll ID: {}", poll.id)))
+    embed
+        .field(
+            "Created",
+            format!(
+                "Created <t:{}:f> by <@{}>",
+                poll.created_at.timestamp(),
+                poll.created_by
+            ),
+            false,
+        )
+        .footer(CreateEmbedFooter::new(format!("Poll ID: {}", poll.id)))
 }
 
 pub fn render_poll_buttons(poll: &Poll, responses: &[Vote]) -> Vec<CreateActionRow> {
@@ -75,6 +97,22 @@ fn voters_for_choice(responses: &[Vote], choice: &str) -> Vec<String> {
         .filter(|vote| vote.choice == choice)
         .map(|vote| format!("<@{}>", vote.user_id))
         .collect()
+}
+
+fn response_title(choice: &str, index: usize) -> String {
+    if index == 0 {
+        choice.to_string()
+    } else {
+        format!("| {choice}")
+    }
+}
+
+fn notification_allowed_mentions(notification: &PollNotification) -> CreateAllowedMentions {
+    CreateAllowedMentions::new()
+        .users(notification.user_ids.iter().copied().map(UserId::new))
+        .roles(notification.role_ids.iter().copied().map(RoleId::new))
+        .everyone(false)
+        .replied_user(false)
 }
 
 fn pluralize_vote(count: usize) -> &'static str {

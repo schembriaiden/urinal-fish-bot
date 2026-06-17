@@ -7,7 +7,8 @@ use sqlx::{Executor, Row, SqlitePool};
 use tracing::info;
 
 use crate::models::{
-    DueEasterEggTaunt, EasterEggMessage, EasterEggSettings, Poll, RecurringSeries, Vote,
+    DueEasterEggTaunt, EasterEggMessage, EasterEggSettings, Poll, PollNotification,
+    RecurringSeries, Vote,
 };
 
 #[derive(Clone)]
@@ -80,6 +81,9 @@ impl Store {
                     schedule TEXT NOT NULL,
                     timezone TEXT NOT NULL,
                     choices_json TEXT NOT NULL,
+                    notification_text TEXT,
+                    notification_user_ids_json TEXT NOT NULL DEFAULT '[]',
+                    notification_role_ids_json TEXT NOT NULL DEFAULT '[]',
                     channel_id INTEGER NOT NULL,
                     created_by INTEGER NOT NULL,
                     next_post_at TEXT NOT NULL,
@@ -114,9 +118,41 @@ impl Store {
                     channel_id INTEGER,
                     message TEXT
                 );
-                "#,
+            "#,
             )
             .await?;
+        self.ensure_column(
+            "recurring_series",
+            "notification_text",
+            "ALTER TABLE recurring_series ADD COLUMN notification_text TEXT",
+        )
+        .await?;
+        self.ensure_column(
+            "recurring_series",
+            "notification_user_ids_json",
+            "ALTER TABLE recurring_series ADD COLUMN notification_user_ids_json TEXT NOT NULL DEFAULT '[]'",
+        )
+        .await?;
+        self.ensure_column(
+            "recurring_series",
+            "notification_role_ids_json",
+            "ALTER TABLE recurring_series ADD COLUMN notification_role_ids_json TEXT NOT NULL DEFAULT '[]'",
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn ensure_column(&self, table: &str, column: &str, alter_sql: &str) -> Result<()> {
+        let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
+            .fetch_all(&self.pool)
+            .await?;
+        let exists = rows.iter().any(|row| {
+            row.try_get::<String, _>("name")
+                .is_ok_and(|name| name == column)
+        });
+        if !exists {
+            self.pool.execute(alter_sql).await?;
+        }
         Ok(())
     }
 
@@ -250,10 +286,12 @@ impl Store {
         sqlx::query(
             r#"
             INSERT INTO recurring_series
-                (id, title, description, schedule, timezone, choices_json, channel_id,
+                (id, title, description, schedule, timezone, choices_json,
+                 notification_text, notification_user_ids_json, notification_role_ids_json,
+                 channel_id,
                  created_by, next_post_at, active, created_at)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
             "#,
         )
         .bind(&series.id)
@@ -262,6 +300,26 @@ impl Store {
         .bind(&series.schedule)
         .bind(series.timezone.name())
         .bind(serde_json::to_string(&series.choices)?)
+        .bind(
+            series
+                .notification
+                .as_ref()
+                .map(|notification| notification.content.as_str()),
+        )
+        .bind(serde_json::to_string(
+            &series
+                .notification
+                .as_ref()
+                .map(|notification| notification.user_ids.clone())
+                .unwrap_or_default(),
+        )?)
+        .bind(serde_json::to_string(
+            &series
+                .notification
+                .as_ref()
+                .map(|notification| notification.role_ids.clone())
+                .unwrap_or_default(),
+        )?)
         .bind(to_i64(series.channel_id)?)
         .bind(to_i64(series.created_by)?)
         .bind(series.next_post_at.to_rfc3339())
@@ -275,6 +333,7 @@ impl Store {
         let rows = sqlx::query(
             r#"
             SELECT id, title, description, schedule, timezone, choices_json, channel_id,
+                   notification_text, notification_user_ids_json, notification_role_ids_json,
                    created_by, next_post_at
             FROM recurring_series
             WHERE active = 1
@@ -291,6 +350,7 @@ impl Store {
         let rows = sqlx::query(
             r#"
             SELECT id, title, description, schedule, timezone, choices_json, channel_id,
+                   notification_text, notification_user_ids_json, notification_role_ids_json,
                    created_by, next_post_at
             FROM recurring_series
             WHERE active = 1 AND next_post_at <= ?1
@@ -518,10 +578,25 @@ fn row_to_series(row: sqlx::sqlite::SqliteRow) -> Result<RecurringSeries> {
         schedule: row.try_get("schedule")?,
         timezone: timezone.parse().unwrap_or(chrono_tz::UTC),
         choices: serde_json::from_str(&choices_json)?,
+        notification: row_to_notification(&row)?,
         channel_id: to_u64(row.try_get::<i64, _>("channel_id")?)?,
         created_by: to_u64(row.try_get::<i64, _>("created_by")?)?,
         next_post_at: parse_utc(&next_post_at)?,
     })
+}
+
+fn row_to_notification(row: &sqlx::sqlite::SqliteRow) -> Result<Option<PollNotification>> {
+    let Some(content) = row.try_get::<Option<String>, _>("notification_text")? else {
+        return Ok(None);
+    };
+    let user_ids_json: String = row.try_get("notification_user_ids_json")?;
+    let role_ids_json: String = row.try_get("notification_role_ids_json")?;
+
+    Ok(Some(PollNotification {
+        content,
+        user_ids: serde_json::from_str(&user_ids_json)?,
+        role_ids: serde_json::from_str(&role_ids_json)?,
+    }))
 }
 
 fn row_to_easter_egg_settings(row: sqlx::sqlite::SqliteRow) -> Result<EasterEggSettings> {

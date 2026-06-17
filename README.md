@@ -133,6 +133,12 @@ Create a one-off event:
 /event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe description: Meet outside the pub
 ```
 
+Notify a user or role when the poll is posted:
+
+```text
+/event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe notify: @friends
+```
+
 Create a one-off event with custom choices. The bot remembers these and suggests them the next time you type `choices`:
 
 ```text
@@ -143,6 +149,12 @@ Create a recurring event:
 
 ```text
 /event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe
+```
+
+Recurring events can also notify a user or role whenever the scheduled poll is posted:
+
+```text
+/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe notify: @friends
 ```
 
 Supported recurring schedules:
