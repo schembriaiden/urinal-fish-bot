@@ -13,23 +13,23 @@ pub fn render_poll_message(poll: &Poll, responses: &[Vote]) -> CreateMessage {
 
 pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
     let total_votes = responses.len();
+    let mut description = Vec::new();
+    if let Some(details) = &poll.description {
+        description.push(details.to_string());
+    }
+    description.push(format!(
+        "**When**\n{}\n\n**Created by** <@{}>  •  **Total votes** {}",
+        poll.when.as_deref().unwrap_or("Not specified"),
+        poll.created_by,
+        total_votes
+    ));
+
     let mut embed = CreateEmbed::new()
         .title(&poll.title)
         .color(0x2f9eaa)
-        .field(
-            "When",
-            poll.when.as_deref().unwrap_or("Not specified"),
-            false,
-        )
-        .field("Created by", format!("<@{}>", poll.created_by), true)
-        .field("Total votes", total_votes.to_string(), true)
+        .description(description.join("\n\n"))
         .timestamp(poll.created_at);
 
-    if let Some(description) = &poll.description {
-        embed = embed.description(description);
-    }
-
-    let mut response_lines = Vec::new();
     for choice in &poll.choices {
         let users = voters_for_choice(responses, choice);
         let count = users.len();
@@ -38,17 +38,14 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
         } else {
             users.join("  ")
         };
-        response_lines.push(format!(
-            "**{choice}** - {} {}\n`{}`\n{value}",
-            count,
-            pluralize_vote(count),
-            vote_bar(count, total_votes)
-        ));
+        embed = embed.field(
+            format!("{choice} - {} {}", count, pluralize_vote(count)),
+            value,
+            true,
+        );
     }
 
-    embed
-        .field("Responses", response_lines.join("\n\n"), false)
-        .footer(CreateEmbedFooter::new(format!("Poll ID: {}", poll.id)))
+    embed.footer(CreateEmbedFooter::new(format!("Poll ID: {}", poll.id)))
 }
 
 pub fn render_poll_buttons(poll: &Poll, responses: &[Vote]) -> Vec<CreateActionRow> {
@@ -78,15 +75,6 @@ fn voters_for_choice(responses: &[Vote], choice: &str) -> Vec<String> {
         .filter(|vote| vote.choice == choice)
         .map(|vote| format!("<@{}>", vote.user_id))
         .collect()
-}
-
-fn vote_bar(count: usize, total_votes: usize) -> String {
-    let filled = if count == 0 || total_votes == 0 {
-        0
-    } else {
-        (((count * 10) + (total_votes / 2)) / total_votes).clamp(1, 10)
-    };
-    format!("{}{}", "█".repeat(filled), "░".repeat(10 - filled))
 }
 
 fn pluralize_vote(count: usize) -> &'static str {
