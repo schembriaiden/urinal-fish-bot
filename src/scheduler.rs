@@ -9,7 +9,7 @@ use tracing::{error, info};
 use crate::Data;
 use crate::discord::{format_discord_time, render_poll_message};
 use crate::easter_egg;
-use crate::models::Poll;
+use crate::models::{NewPoll, Poll};
 use crate::recurrence::next_occurrence;
 
 pub async fn run(data: Arc<Data>, http: Arc<Http>) {
@@ -25,19 +25,23 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
     let now = Utc::now();
     let due_series = data.store.due_series(Utc::now()).await?;
     for series in due_series {
-        let poll = Poll::new(
-            series.title.clone(),
-            series.description.clone(),
-            Some(format!(
+        let poll = Poll::new(NewPoll {
+            title: series.title.clone(),
+            description: series.description.clone(),
+            when: Some(format!(
                 "{} recurrence for {}",
                 series.schedule,
                 format_discord_time(series.next_post_at)
             )),
-            series.choices.clone(),
-            series.channel_id,
-            Some(series.id.clone()),
-            series.created_by,
-        );
+            choices: series.choices.clone(),
+            channel_id: series.channel_id,
+            recurring_id: Some(series.id.clone()),
+            created_by: series.created_by,
+            created_by_name: series
+                .created_by_name
+                .clone()
+                .unwrap_or_else(|| series.created_by.to_string()),
+        });
         data.store.insert_poll(&poll).await?;
 
         match ChannelId::new(series.channel_id)

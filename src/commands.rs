@@ -7,7 +7,7 @@ use crate::choices::{default_choices, parse_choices};
 use crate::discord::{format_discord_time, render_poll_message};
 use crate::easter_egg;
 use crate::models::{
-    EasterEggMessage, EasterEggSettings, NewRecurringSeries, Poll, PollNotification,
+    EasterEggMessage, EasterEggSettings, NewPoll, NewRecurringSeries, Poll, PollNotification,
     RecurringSeries,
 };
 use crate::recurrence::next_occurrence;
@@ -54,15 +54,16 @@ pub async fn single(
     let choices = parse_choices(&choices)?;
     let notification = parse_notification(notify)?;
     ctx.data().store.record_choice_history(&choices).await?;
-    let poll = Poll::new(
+    let poll = Poll::new(NewPoll {
         title,
         description,
         when,
         choices,
-        channel_id.get(),
-        None,
-        ctx.author().id.get(),
-    );
+        channel_id: channel_id.get(),
+        recurring_id: None,
+        created_by: ctx.author().id.get(),
+        created_by_name: display_name_for_user(ctx.author()),
+    });
 
     ctx.data().store.insert_poll(&poll).await?;
     let message = ctx
@@ -136,6 +137,7 @@ pub async fn recurring(
         notification,
         channel_id: channel_id.get(),
         created_by: ctx.author().id.get(),
+        created_by_name: display_name_for_user(ctx.author()),
         next_post_at,
     });
     ctx.data().store.insert_series(&series).await?;
@@ -469,6 +471,13 @@ fn parse_user_mention(token: &str) -> Option<u64> {
 
 fn parse_role_mention(token: &str) -> Option<u64> {
     token.strip_prefix("<@&")?.strip_suffix('>')?.parse().ok()
+}
+
+fn display_name_for_user(user: &User) -> String {
+    user.global_name
+        .as_deref()
+        .unwrap_or(&user.name)
+        .to_string()
 }
 
 async fn autocomplete_choices(ctx: Context<'_>, partial: &str) -> Vec<String> {

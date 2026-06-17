@@ -62,6 +62,7 @@ impl Store {
                     message_id INTEGER,
                     recurring_id TEXT,
                     created_by INTEGER NOT NULL,
+                    created_by_name TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -69,6 +70,7 @@ impl Store {
                     poll_id TEXT NOT NULL,
                     user_id INTEGER NOT NULL,
                     choice TEXT NOT NULL,
+                    display_name TEXT,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (poll_id, user_id),
                     FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE
@@ -86,6 +88,7 @@ impl Store {
                     notification_role_ids_json TEXT NOT NULL DEFAULT '[]',
                     channel_id INTEGER NOT NULL,
                     created_by INTEGER NOT NULL,
+                    created_by_name TEXT,
                     next_post_at TEXT NOT NULL,
                     active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL
@@ -139,6 +142,24 @@ impl Store {
             "ALTER TABLE recurring_series ADD COLUMN notification_role_ids_json TEXT NOT NULL DEFAULT '[]'",
         )
         .await?;
+        self.ensure_column(
+            "responses",
+            "display_name",
+            "ALTER TABLE responses ADD COLUMN display_name TEXT",
+        )
+        .await?;
+        self.ensure_column(
+            "polls",
+            "created_by_name",
+            "ALTER TABLE polls ADD COLUMN created_by_name TEXT",
+        )
+        .await?;
+        self.ensure_column(
+            "recurring_series",
+            "created_by_name",
+            "ALTER TABLE recurring_series ADD COLUMN created_by_name TEXT",
+        )
+        .await?;
         Ok(())
     }
 
@@ -160,9 +181,10 @@ impl Store {
         sqlx::query(
             r#"
             INSERT INTO polls
-                (id, title, description, when_text, choices_json, channel_id, message_id, recurring_id, created_by, created_at)
+                (id, title, description, when_text, choices_json, channel_id, message_id,
+                 recurring_id, created_by, created_by_name, created_at)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             "#,
         )
         .bind(&poll.id)
@@ -174,6 +196,7 @@ impl Store {
         .bind(poll.message_id.map(to_i64).transpose()?)
         .bind(&poll.recurring_id)
         .bind(to_i64(poll.created_by)?)
+        .bind(&poll.created_by_name)
         .bind(poll.created_at.to_rfc3339())
         .execute(&self.pool)
         .await?;
@@ -193,7 +216,7 @@ impl Store {
         let row = sqlx::query(
             r#"
             SELECT id, title, description, when_text, choices_json, channel_id, message_id,
-                   recurring_id, created_by, created_at
+                   recurring_id, created_by, created_by_name, created_at
             FROM polls
             WHERE id = ?1
             "#,
@@ -205,18 +228,28 @@ impl Store {
         row.map(row_to_poll).transpose()
     }
 
-    pub async fn set_response(&self, poll_id: &str, user_id: u64, choice: &str) -> Result<()> {
+    pub async fn set_response(
+        &self,
+        poll_id: &str,
+        user_id: u64,
+        display_name: &str,
+        choice: &str,
+    ) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO responses (poll_id, user_id, choice, updated_at)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO responses (poll_id, user_id, choice, display_name, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
             ON CONFLICT(poll_id, user_id)
-            DO UPDATE SET choice = excluded.choice, updated_at = excluded.updated_at
+            DO UPDATE SET
+                choice = excluded.choice,
+                display_name = excluded.display_name,
+                updated_at = excluded.updated_at
             "#,
         )
         .bind(poll_id)
         .bind(to_i64(user_id)?)
         .bind(choice)
+        .bind(display_name)
         .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)
         .await?;
@@ -225,7 +258,7 @@ impl Store {
 
     pub async fn poll_responses(&self, poll_id: &str) -> Result<Vec<Vote>> {
         let rows = sqlx::query(
-            "SELECT user_id, choice FROM responses WHERE poll_id = ?1 ORDER BY updated_at",
+            "SELECT user_id, display_name, choice FROM responses WHERE poll_id = ?1 ORDER BY updated_at",
         )
         .bind(poll_id)
         .fetch_all(&self.pool)
@@ -289,9 +322,9 @@ impl Store {
                 (id, title, description, schedule, timezone, choices_json,
                  notification_text, notification_user_ids_json, notification_role_ids_json,
                  channel_id,
-                 created_by, next_post_at, active, created_at)
+                 created_by, created_by_name, next_post_at, active, created_at)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14)
             "#,
         )
         .bind(&series.id)
@@ -322,6 +355,7 @@ impl Store {
         )?)
         .bind(to_i64(series.channel_id)?)
         .bind(to_i64(series.created_by)?)
+        .bind(&series.created_by_name)
         .bind(series.next_post_at.to_rfc3339())
         .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)
@@ -334,7 +368,7 @@ impl Store {
             r#"
             SELECT id, title, description, schedule, timezone, choices_json, channel_id,
                    notification_text, notification_user_ids_json, notification_role_ids_json,
-                   created_by, next_post_at
+                   created_by, created_by_name, next_post_at
             FROM recurring_series
             WHERE active = 1
             ORDER BY next_post_at
@@ -351,7 +385,7 @@ impl Store {
             r#"
             SELECT id, title, description, schedule, timezone, choices_json, channel_id,
                    notification_text, notification_user_ids_json, notification_role_ids_json,
-                   created_by, next_post_at
+                   created_by, created_by_name, next_post_at
             FROM recurring_series
             WHERE active = 1 AND next_post_at <= ?1
             ORDER BY next_post_at
@@ -555,6 +589,7 @@ fn row_to_poll(row: sqlx::sqlite::SqliteRow) -> Result<Poll> {
             .transpose()?,
         recurring_id: row.try_get("recurring_id")?,
         created_by: to_u64(row.try_get::<i64, _>("created_by")?)?,
+        created_by_name: row.try_get("created_by_name")?,
         created_at: parse_utc(&created_at)?,
     })
 }
@@ -562,6 +597,7 @@ fn row_to_poll(row: sqlx::sqlite::SqliteRow) -> Result<Poll> {
 fn row_to_vote(row: sqlx::sqlite::SqliteRow) -> Result<Vote> {
     Ok(Vote {
         user_id: to_u64(row.try_get::<i64, _>("user_id")?)?,
+        display_name: row.try_get("display_name")?,
         choice: row.try_get("choice")?,
     })
 }
@@ -581,6 +617,7 @@ fn row_to_series(row: sqlx::sqlite::SqliteRow) -> Result<RecurringSeries> {
         notification: row_to_notification(&row)?,
         channel_id: to_u64(row.try_get::<i64, _>("channel_id")?)?,
         created_by: to_u64(row.try_get::<i64, _>("created_by")?)?,
+        created_by_name: row.try_get("created_by_name")?,
         next_post_at: parse_utc(&next_post_at)?,
     })
 }

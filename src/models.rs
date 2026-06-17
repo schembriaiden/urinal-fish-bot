@@ -14,37 +14,44 @@ pub struct Poll {
     pub message_id: Option<u64>,
     pub recurring_id: Option<String>,
     pub created_by: u64,
+    pub created_by_name: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
 impl Poll {
-    pub fn new(
-        title: String,
-        description: Option<String>,
-        when: Option<String>,
-        choices: Vec<String>,
-        channel_id: u64,
-        recurring_id: Option<String>,
-        created_by: u64,
-    ) -> Self {
+    pub fn new(input: NewPoll) -> Self {
         Self {
             id: short_id(),
-            title,
-            description,
-            when,
-            choices,
-            channel_id,
+            title: input.title,
+            description: input.description,
+            when: input.when,
+            choices: input.choices,
+            channel_id: input.channel_id,
             message_id: None,
-            recurring_id,
-            created_by,
+            recurring_id: input.recurring_id,
+            created_by: input.created_by,
+            created_by_name: Some(input.created_by_name),
             created_at: Utc::now(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
+pub struct NewPoll {
+    pub title: String,
+    pub description: Option<String>,
+    pub when: Option<String>,
+    pub choices: Vec<String>,
+    pub channel_id: u64,
+    pub recurring_id: Option<String>,
+    pub created_by: u64,
+    pub created_by_name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Vote {
     pub user_id: u64,
+    pub display_name: Option<String>,
     pub choice: String,
 }
 
@@ -59,6 +66,7 @@ pub struct RecurringSeries {
     pub notification: Option<PollNotification>,
     pub channel_id: u64,
     pub created_by: u64,
+    pub created_by_name: Option<String>,
     pub next_post_at: DateTime<Utc>,
 }
 
@@ -74,6 +82,7 @@ impl RecurringSeries {
             notification: input.notification,
             channel_id: input.channel_id,
             created_by: input.created_by,
+            created_by_name: Some(input.created_by_name),
             next_post_at: input.next_post_at,
         }
     }
@@ -96,6 +105,7 @@ pub struct NewRecurringSeries {
     pub notification: Option<PollNotification>,
     pub channel_id: u64,
     pub created_by: u64,
+    pub created_by_name: String,
     pub next_post_at: DateTime<Utc>,
 }
 

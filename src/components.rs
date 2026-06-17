@@ -31,8 +31,14 @@ pub async fn handle_component(
         return respond_ephemeral(ctx, component, "That choice no longer exists.").await;
     };
 
+    let display_name = component
+        .member
+        .as_ref()
+        .and_then(|member| member.nick.as_deref())
+        .or(component.user.global_name.as_deref())
+        .unwrap_or(&component.user.name);
     data.store
-        .set_response(&poll.id, component.user.id.get(), &choice)
+        .set_response(&poll.id, component.user.id.get(), display_name, &choice)
         .await?;
     info!(
         poll_id = %poll.id,
