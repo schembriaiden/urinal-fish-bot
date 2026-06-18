@@ -22,6 +22,7 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
         series_delete(),
         easter_set(),
         easter_add_message(),
+        easter_delete_message(),
         easter_status(),
         easter_test(),
         easter_disable(),
@@ -319,6 +320,36 @@ pub async fn easter_add_message(
     reply_ephemeral(ctx, "Added easter egg message.".to_string()).await
 }
 
+/// Delete one easter egg message by ID from `/easter_status`.
+#[poise::command(
+    slash_command,
+    default_member_permissions = "ADMINISTRATOR",
+    required_permissions = "ADMINISTRATOR"
+)]
+pub async fn easter_delete_message(
+    ctx: Context<'_>,
+    #[description = "Message ID shown in /easter_status"] id: String,
+) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    let id = validation::clean_text(id, "easter egg message id", 32)?;
+    let deleted = ctx.data().store.delete_easter_egg_message(&id).await?;
+    info!(
+        message_id = %id,
+        deleted,
+        deleted_by = ctx.author().id.get(),
+        "deleted easter egg message"
+    );
+
+    let response = if deleted {
+        format!("Deleted easter egg message `{id}`.")
+    } else {
+        format!("I could not find an easter egg message with ID `{id}`.")
+    };
+
+    reply_ephemeral(ctx, response).await
+}
+
 /// Show whether the easter egg is enabled, who it targets, and its messages.
 #[poise::command(
     slash_command,
@@ -340,7 +371,7 @@ pub async fn easter_status(ctx: Context<'_>) -> Result<(), Error> {
     let preview = messages
         .iter()
         .take(5)
-        .map(|message| format!("- `{}`", message.message))
+        .map(|message| format!("- `{}`: {}", message.id, message.message))
         .collect::<Vec<_>>()
         .join("\n");
     let preview = if preview.is_empty() {

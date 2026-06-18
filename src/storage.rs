@@ -528,6 +528,15 @@ impl Store {
         rows.into_iter().map(row_to_easter_egg_message).collect()
     }
 
+    pub async fn delete_easter_egg_message(&self, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM easter_egg_messages WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn easter_egg_run_exists(&self, run_date: &str) -> Result<bool> {
         let row = sqlx::query("SELECT 1 FROM easter_egg_daily_runs WHERE run_date = ?1")
             .bind(run_date)
@@ -738,6 +747,29 @@ mod tests {
         let suggestions = store.recent_choice_sets("piz", 10).await.unwrap();
 
         assert_eq!(suggestions, ["Pizza, Sushi, No"]);
+
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn deletes_easter_egg_message_by_id() {
+        let path = std::env::temp_dir().join(format!(
+            "urinal-fish-easter-test-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let path = path.to_string_lossy().into_owned();
+        let store = Store::open(&path).await.unwrap();
+        let message = EasterEggMessage {
+            id: "abc12345".to_string(),
+            message: "Test message".to_string(),
+        };
+
+        store.add_easter_egg_message(&message, 42).await.unwrap();
+
+        assert!(store.delete_easter_egg_message("abc12345").await.unwrap());
+        assert!(!store.delete_easter_egg_message("abc12345").await.unwrap());
+        assert!(store.list_easter_egg_messages().await.unwrap().is_empty());
 
         drop(store);
         let _ = std::fs::remove_file(path);

@@ -196,6 +196,12 @@ Add more easter egg messages:
 /easter_add_message message: Your planning skills need adult supervision.
 ```
 
+Delete one easter egg message by ID from `/easter_status`:
+
+```text
+/easter_delete_message id: abc12345
+```
+
 Send one test easter egg message immediately in the current channel:
 
 ```text
