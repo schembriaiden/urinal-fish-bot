@@ -186,11 +186,12 @@ pub async fn series_list(ctx: Context<'_>) -> Result<(), Error> {
             .into_iter()
             .map(|item| {
                 format!(
-                    "`{}`: {} | next {} | choices: {}",
+                    "`{}`: {} | next {} | choices: {} | notify: {}",
                     item.id,
                     item.title,
                     format_discord_time(item.next_post_at),
-                    item.choices.join(", ")
+                    item.choices.join(", "),
+                    series_notification_summary(item.notification.as_ref())
                 )
             })
             .collect::<Vec<_>>()
@@ -494,6 +495,13 @@ fn display_name_for_user(user: &User) -> String {
         .to_string()
 }
 
+fn series_notification_summary(notification: Option<&PollNotification>) -> String {
+    notification
+        .map(|notification| notification.content.clone())
+        .filter(|content| !content.trim().is_empty())
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn help_text() -> String {
     [
         "**Urinal Fish help**",
@@ -566,5 +574,20 @@ mod tests {
             .to_string();
 
         assert!(error.contains("user or role mentions"));
+    }
+
+    #[test]
+    fn summarizes_series_notifications() {
+        let notification = PollNotification {
+            content: "<@123> <@&456>".to_string(),
+            user_ids: vec![123],
+            role_ids: vec![456],
+        };
+
+        assert_eq!(
+            series_notification_summary(Some(&notification)),
+            "<@123> <@&456>"
+        );
+        assert_eq!(series_notification_summary(None), "none");
     }
 }
