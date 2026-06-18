@@ -226,6 +226,7 @@ pub async fn series_delete(
     reply_ephemeral(ctx, message).await
 }
 
+/// Configure the easter egg target, posting window, and first message.
 #[poise::command(
     slash_command,
     default_member_permissions = "ADMINISTRATOR",
@@ -281,6 +282,7 @@ pub async fn easter_set(
     .await
 }
 
+/// Add another possible easter egg message to the random message pool.
 #[poise::command(
     slash_command,
     default_member_permissions = "ADMINISTRATOR",
@@ -316,6 +318,7 @@ pub async fn easter_add_message(
     reply_ephemeral(ctx, "Added easter egg message.".to_string()).await
 }
 
+/// Show whether the easter egg is enabled, who it targets, and its messages.
 #[poise::command(
     slash_command,
     default_member_permissions = "ADMINISTRATOR",
@@ -360,6 +363,7 @@ pub async fn easter_status(ctx: Context<'_>) -> Result<(), Error> {
     .await
 }
 
+/// Disable the easter egg without deleting its configured messages.
 #[poise::command(
     slash_command,
     default_member_permissions = "ADMINISTRATOR",
