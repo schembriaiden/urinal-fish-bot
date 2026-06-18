@@ -27,24 +27,33 @@ pub fn render_poll_message(
 pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
     let mut embed = CreateEmbed::new()
         .color(0x2f9eaa)
-        .title(format!("📅 {}", embed_text(&poll.title)));
+        .title(format!("📅 {}", embed_text(&poll.title).to_uppercase()));
 
     if let Some(description) = &poll.description {
         embed = embed.description(embed_text(description));
     }
 
-    embed = embed
-        .field(
-            "🗓 When",
-            embed_text(poll.when.as_deref().unwrap_or("Not specified")),
+    embed = embed.field(spacer_name(), spacer_value(), false).field(
+        "🗓 When",
+        embed_text(poll.when.as_deref().unwrap_or("Not specified")),
+        true,
+    );
+
+    if let Some(location) = filled_text(poll.location.as_deref()) {
+        embed = embed.field("📍 Where", embed_text(location), true).field(
+            "👤 Creator",
+            user_mention(poll.created_by),
             true,
-        )
-        .field(
-            "📍 Where",
-            embed_text(poll.location.as_deref().unwrap_or("Not specified")),
+        );
+    } else {
+        embed = embed.field(spacer_name(), spacer_value(), true).field(
+            "👤 Creator",
+            user_mention(poll.created_by),
             true,
-        )
-        .field("👤 Creator", user_mention(poll.created_by), true);
+        );
+    }
+
+    embed = embed.field(spacer_name(), spacer_value(), false);
 
     for choice in &poll.choices {
         embed = embed.field(
@@ -127,6 +136,24 @@ fn vote_count(count: usize) -> String {
 
 fn user_mention(user_id: u64) -> String {
     format!("<@{user_id}>")
+}
+
+fn filled_text(value: Option<&str>) -> Option<&str> {
+    value.and_then(|value| {
+        if value.trim().is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    })
+}
+
+fn spacer_name() -> &'static str {
+    "\u{200B}"
+}
+
+fn spacer_value() -> &'static str {
+    "\u{200B}"
 }
 
 fn embed_text(value: &str) -> String {
@@ -213,5 +240,12 @@ mod tests {
         assert_eq!(choice_field_value("caru tond", &votes), "<@1>\n<@2>");
         assert_eq!(choice_field_value("bajd u patata", &votes), "<@3>");
         assert_eq!(choice_field_value("flat", &votes), "_No one yet_");
+    }
+
+    #[test]
+    fn skips_where_when_location_is_not_set() {
+        assert_eq!(filled_text(None), None);
+        assert_eq!(filled_text(Some("   ")), None);
+        assert_eq!(filled_text(Some("Valletta")), Some("Valletta"));
     }
 }
