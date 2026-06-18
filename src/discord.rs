@@ -33,7 +33,7 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
         embed = embed.description(embed_text(description));
     }
 
-    embed = embed.field(spacer_name(), spacer_value(), false).field(
+    embed = embed.field(
         "🗓 When",
         embed_text(poll.when.as_deref().unwrap_or("Not specified")),
         true,
@@ -46,20 +46,14 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
             true,
         );
     } else {
-        embed = embed.field(spacer_name(), spacer_value(), true).field(
-            "👤 Creator",
-            user_mention(poll.created_by),
-            true,
-        );
+        embed = embed.field("👤 Creator", user_mention(poll.created_by), true);
     }
-
-    embed = embed.field(spacer_name(), spacer_value(), false);
 
     for choice in &poll.choices {
         embed = embed.field(
             choice_field_name(choice, responses),
             choice_field_value(choice, responses),
-            true,
+            false,
         );
     }
 
@@ -146,14 +140,6 @@ fn filled_text(value: Option<&str>) -> Option<&str> {
             Some(value)
         }
     })
-}
-
-fn spacer_name() -> &'static str {
-    "\u{200B}"
-}
-
-fn spacer_value() -> &'static str {
-    "\u{200B}"
 }
 
 fn embed_text(value: &str) -> String {
