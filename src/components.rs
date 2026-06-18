@@ -49,7 +49,11 @@ pub async fn handle_component(
     let responses = data.store.poll_responses(&poll.id).await?;
     let response = CreateInteractionResponse::UpdateMessage(
         CreateInteractionResponseMessage::new()
-            .embed(render_poll_embed(&poll, &responses))
+            .embed(render_poll_embed(
+                &poll,
+                &responses,
+                data.config.default_timezone,
+            ))
             .components(render_poll_buttons(&poll)),
     );
 

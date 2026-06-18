@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use poise::serenity_prelude::{
     ButtonStyle, CreateActionRow, CreateAllowedMentions, CreateButton, CreateEmbed,
     CreateEmbedFooter, CreateMessage, RoleId, UserId,
@@ -10,9 +11,10 @@ pub fn render_poll_message(
     poll: &Poll,
     responses: &[Vote],
     notification: Option<&PollNotification>,
+    timezone: Tz,
 ) -> CreateMessage {
     let mut message = CreateMessage::new()
-        .embed(render_poll_embed(poll, responses))
+        .embed(render_poll_embed(poll, responses, timezone))
         .components(render_poll_buttons(poll));
 
     if let Some(notification) = notification {
@@ -24,7 +26,7 @@ pub fn render_poll_message(
     message
 }
 
-pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
+pub fn render_poll_embed(poll: &Poll, responses: &[Vote], timezone: Tz) -> CreateEmbed {
     let mut embed = CreateEmbed::new()
         .color(0x2f9eaa)
         .title(format!("📅 {}", embed_text(&poll.title).to_uppercase()));
@@ -46,9 +48,7 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
             true,
         );
     } else {
-        embed = embed
-            .field("👤 Creator", user_mention(poll.created_by), true)
-            .field(row_break_name(), row_break_value(), false);
+        embed = embed.field("👤 Creator", user_mention(poll.created_by), false);
     }
 
     for choice in &poll.choices {
@@ -62,7 +62,7 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
     embed.footer(CreateEmbedFooter::new(format!(
         "Event ID: {} • Created on: {}",
         poll.id,
-        poll.created_at.format("%-d %B %Y at %H:%M")
+        format_created_at(poll.created_at, timezone)
     )))
 }
 
@@ -134,6 +134,13 @@ fn user_mention(user_id: u64) -> String {
     format!("<@{user_id}>")
 }
 
+fn format_created_at(created_at: DateTime<Utc>, timezone: Tz) -> String {
+    created_at
+        .with_timezone(&timezone)
+        .format("%-d %B %Y at %H:%M")
+        .to_string()
+}
+
 fn filled_text(value: Option<&str>) -> Option<&str> {
     value.and_then(|value| {
         if value.trim().is_empty() {
@@ -142,14 +149,6 @@ fn filled_text(value: Option<&str>) -> Option<&str> {
             Some(value)
         }
     })
-}
-
-fn row_break_name() -> &'static str {
-    "\u{200B}"
-}
-
-fn row_break_value() -> &'static str {
-    "\u{200B}"
 }
 
 fn embed_text(value: &str) -> String {
@@ -243,5 +242,15 @@ mod tests {
         assert_eq!(filled_text(None), None);
         assert_eq!(filled_text(Some("   ")), None);
         assert_eq!(filled_text(Some("Berlin")), Some("Berlin"));
+    }
+
+    #[test]
+    fn formats_created_time_in_configured_timezone() {
+        let created_at = "2026-06-18T09:50:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        assert_eq!(
+            format_created_at(created_at, chrono_tz::Europe::Berlin),
+            "18 June 2026 at 11:50"
+        );
     }
 }

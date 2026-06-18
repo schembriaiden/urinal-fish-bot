@@ -84,7 +84,12 @@ pub async fn single(
         .channel_id()
         .send_message(
             &ctx.serenity_context().http,
-            render_poll_message(&poll, &[], notification.as_ref()),
+            render_poll_message(
+                &poll,
+                &[],
+                notification.as_ref(),
+                ctx.data().config.default_timezone,
+            ),
         )
         .await
         .context("failed to send poll message")?;

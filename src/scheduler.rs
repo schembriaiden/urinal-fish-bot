@@ -44,7 +44,12 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
         match ChannelId::new(series.channel_id)
             .send_message(
                 http,
-                render_poll_message(&poll, &[], series.notification.as_ref()),
+                render_poll_message(
+                    &poll,
+                    &[],
+                    series.notification.as_ref(),
+                    data.config.default_timezone,
+                ),
             )
             .await
         {
