@@ -46,7 +46,11 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
             true,
         );
     } else {
-        embed = embed.field("👤 Creator", user_mention(poll.created_by), true);
+        embed = embed.field(spacer_name(), spacer_value(), true).field(
+            "👤 Creator",
+            user_mention(poll.created_by),
+            true,
+        );
     }
 
     for choice in &poll.choices {
@@ -140,6 +144,14 @@ fn filled_text(value: Option<&str>) -> Option<&str> {
             Some(value)
         }
     })
+}
+
+fn spacer_name() -> &'static str {
+    "\u{200B}"
+}
+
+fn spacer_value() -> &'static str {
+    "\u{200B}"
 }
 
 fn embed_text(value: &str) -> String {
