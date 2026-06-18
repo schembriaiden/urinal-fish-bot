@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn detects_roll_cutoff_date() {
-        let timezone = chrono_tz::Europe::Malta;
+        let timezone = chrono_tz::Europe::Berlin;
         let before = "2026-06-17T01:59:00Z".parse::<DateTime<Utc>>().unwrap();
         let after = "2026-06-17T02:00:00Z".parse::<DateTime<Utc>>().unwrap();
 

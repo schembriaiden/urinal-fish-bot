@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn finds_next_daily_occurrence() {
         let after = Utc.with_ymd_and_hms(2026, 6, 17, 17, 0, 0).unwrap();
-        let next = next_occurrence("daily 20:00", chrono_tz::Europe::Malta, after).unwrap();
+        let next = next_occurrence("daily 20:00", chrono_tz::Europe::Berlin, after).unwrap();
 
         assert_eq!(next, Utc.with_ymd_and_hms(2026, 6, 17, 18, 0, 0).unwrap());
     }
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn rolls_weekly_occurrence_to_following_week() {
         let after = Utc.with_ymd_and_hms(2026, 6, 19, 19, 0, 0).unwrap();
-        let next = next_occurrence("weekly fri 20:00", chrono_tz::Europe::Malta, after).unwrap();
+        let next = next_occurrence("weekly fri 20:00", chrono_tz::Europe::Berlin, after).unwrap();
 
         assert_eq!(next, Utc.with_ymd_and_hms(2026, 6, 26, 18, 0, 0).unwrap());
     }
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn clamps_monthly_day_to_end_of_month() {
         let after = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
-        let next = next_occurrence("monthly 31 20:00", chrono_tz::Europe::Malta, after).unwrap();
+        let next = next_occurrence("monthly 31 20:00", chrono_tz::Europe::Berlin, after).unwrap();
 
         assert_eq!(next, Utc.with_ymd_and_hms(2026, 2, 28, 19, 0, 0).unwrap());
     }

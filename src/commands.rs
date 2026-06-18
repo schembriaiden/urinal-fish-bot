@@ -118,13 +118,13 @@ pub async fn recurring(
     ctx: Context<'_>,
     #[description = "Event title"] title: String,
     #[description = "daily 19:00, weekly fri 20:00, or monthly 15 19:30"] schedule: String,
+    #[description = "Event date/time shown in the poll, for example: Friday 20:30"] when: String,
     #[description = "Comma-separated choices, for example: yes,no,maybe"]
     #[autocomplete = "autocomplete_choices"]
     choices: String,
     #[description = "Where this recurring event happens"]
     #[rename = "where"]
     where_location: Option<String>,
-    #[description = "Extra details"] description: Option<String>,
     #[description = "Optional users or roles to ping whenever the recurring poll posts"]
     notify: Option<String>,
 ) -> Result<(), Error> {
@@ -132,7 +132,8 @@ pub async fn recurring(
 
     let channel_id = ctx.channel_id();
     let title = validation::poll_title(title)?;
-    let description = validation::optional_description(description)?;
+    let when =
+        validation::optional_when(Some(when))?.ok_or_else(|| anyhow!("when cannot be empty"))?;
     let location = validation::optional_location(where_location)?;
     let timezone = ctx.data().config.default_timezone;
     let choices = parse_choices(&choices)?;
@@ -143,8 +144,9 @@ pub async fn recurring(
 
     let series = RecurringSeries::new(NewRecurringSeries {
         title,
-        description,
+        description: None,
         schedule,
+        when,
         location,
         timezone,
         choices,
@@ -186,9 +188,10 @@ pub async fn series_list(ctx: Context<'_>) -> Result<(), Error> {
             .into_iter()
             .map(|item| {
                 format!(
-                    "`{}`: {} | next {} | choices: {} | notify: {}",
+                    "`{}`: {} | when: {} | next post {} | choices: {} | notify: {}",
                     item.id,
                     item.title,
+                    series_when_summary(&item.when),
                     format_discord_time(item.next_post_at),
                     item.choices.join(", "),
                     series_notification_summary(item.notification.as_ref())
@@ -502,19 +505,24 @@ fn series_notification_summary(notification: Option<&PollNotification>) -> Strin
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn series_when_summary(when: &str) -> &str {
+    let when = when.trim();
+    if when.is_empty() { "not set" } else { when }
+}
+
 fn help_text() -> String {
     [
         "**Urinal Fish help**",
         "",
         "**Create a one-off poll**",
-        "`/event single title: Drinks when: Friday 20:00 choices: yes,no,maybe where: Valletta`",
+        "`/event single title: Drinks when: Friday 20:00 choices: yes,no,maybe where: Berlin`",
         "",
         "**Create a recurring poll**",
-        "`/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe where: Valletta`",
+        "`/event recurring title: Friday drinks schedule: weekly fri 12:00 when: Friday 20:00 choices: yes,no,maybe where: Berlin`",
         "",
         "**Useful options**",
         "`choices` is comma-separated and required. Previously used choice sets are suggested while typing.",
-        "`where`, `description`, and `notify` are optional. `notify` can ping users or roles.",
+        "`where` and `notify` are optional. One-off polls also support `description`. `notify` can ping users or roles.",
         "",
         "**Recurring schedules**",
         "`daily 19:00`, `weekly fri 20:00`, `friday 20:00`, `monthly 15 19:30`",
@@ -589,5 +597,11 @@ mod tests {
             "<@123> <@&456>"
         );
         assert_eq!(series_notification_summary(None), "none");
+    }
+
+    #[test]
+    fn summarizes_empty_series_when() {
+        assert_eq!(series_when_summary("Friday 20:00"), "Friday 20:00");
+        assert_eq!(series_when_summary("   "), "not set");
     }
 }

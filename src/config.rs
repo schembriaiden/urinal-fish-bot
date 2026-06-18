@@ -23,9 +23,9 @@ impl Config {
         let channel_ids = channel_ids_from_env()?;
         let database_path = env::var("DATABASE_PATH").unwrap_or_else(|_| "data/bot.db".to_string());
         let default_timezone = env::var("DEFAULT_TIMEZONE")
-            .unwrap_or_else(|_| "Europe/Malta".to_string())
+            .unwrap_or_else(|_| "Europe/Berlin".to_string())
             .parse()
-            .context("DEFAULT_TIMEZONE must be an IANA timezone like Europe/Malta")?;
+            .context("DEFAULT_TIMEZONE must be an IANA timezone like Europe/Berlin")?;
         let scheduler_interval = env::var("SCHEDULER_INTERVAL_SECONDS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())

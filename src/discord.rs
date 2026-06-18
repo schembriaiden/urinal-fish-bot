@@ -194,7 +194,7 @@ mod tests {
             title: "Tal-Aħħar".to_string(),
             description: Some("issa".to_string()),
             when: Some("Today at 22:30".to_string()),
-            location: Some("Valletta".to_string()),
+            location: Some("Berlin".to_string()),
             choices: vec![
                 "caru tond".to_string(),
                 "bajd u patata".to_string(),
@@ -244,6 +244,6 @@ mod tests {
     fn skips_where_when_location_is_not_set() {
         assert_eq!(filled_text(None), None);
         assert_eq!(filled_text(Some("   ")), None);
-        assert_eq!(filled_text(Some("Valletta")), Some("Valletta"));
+        assert_eq!(filled_text(Some("Berlin")), Some("Berlin"));
     }
 }

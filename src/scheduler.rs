@@ -7,7 +7,7 @@ use tokio::time::sleep;
 use tracing::{error, info};
 
 use crate::Data;
-use crate::discord::{format_discord_time, render_poll_message};
+use crate::discord::render_poll_message;
 use crate::easter_egg;
 use crate::models::{NewPoll, Poll};
 use crate::recurrence::next_occurrence;
@@ -28,11 +28,7 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
         let poll = Poll::new(NewPoll {
             title: series.title.clone(),
             description: series.description.clone(),
-            when: Some(format!(
-                "{} recurrence for {}",
-                series.schedule,
-                format_discord_time(series.next_post_at)
-            )),
+            when: Some(series_when_text(&series.when, series.next_post_at)),
             location: series.location.clone(),
             choices: series.choices.clone(),
             channel_id: series.channel_id,
@@ -81,6 +77,14 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
     send_due_easter_egg_taunts(data, http, now).await?;
 
     Ok(())
+}
+
+fn series_when_text(when: &str, next_post_at: chrono::DateTime<Utc>) -> String {
+    let when = when.trim();
+    if when.is_empty() {
+        return next_post_at.format("%A %H:%M").to_string();
+    }
+    when.to_string()
 }
 
 async fn roll_easter_egg_if_due(data: &Data) -> Result<()> {
