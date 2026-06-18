@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use poise::serenity_prelude::{
-    ButtonStyle, CreateActionRow, CreateAllowedMentions, CreateButton, CreateEmbed, CreateMessage,
-    RoleId, UserId,
+    ButtonStyle, CreateActionRow, CreateAllowedMentions, CreateButton, CreateEmbed,
+    CreateEmbedFooter, CreateMessage, RoleId, UserId,
 };
 
 use crate::models::{Poll, PollNotification, Vote};
@@ -25,10 +25,40 @@ pub fn render_poll_message(
 }
 
 pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
-    CreateEmbed::new().color(0x2f9eaa).description(format!(
-        "```text\n{}\n```",
-        render_poll_panel(poll, responses)
-    ))
+    let mut embed = CreateEmbed::new()
+        .color(0x2f9eaa)
+        .title(format!("📅 {}", embed_text(&poll.title)));
+
+    if let Some(description) = &poll.description {
+        embed = embed.description(embed_text(description));
+    }
+
+    embed = embed
+        .field(
+            "🗓 When",
+            embed_text(poll.when.as_deref().unwrap_or("Not specified")),
+            true,
+        )
+        .field(
+            "📍 Where",
+            embed_text(poll.location.as_deref().unwrap_or("Not specified")),
+            true,
+        )
+        .field("👤 Creator", user_mention(poll.created_by), true);
+
+    for choice in &poll.choices {
+        embed = embed.field(
+            choice_field_name(choice, responses),
+            choice_field_value(choice, responses),
+            true,
+        );
+    }
+
+    embed.footer(CreateEmbedFooter::new(format!(
+        "Event ID: {} • Created on: {}",
+        poll.id,
+        poll.created_at.format("%-d %B %Y at %H:%M")
+    )))
 }
 
 pub fn render_poll_buttons(poll: &Poll) -> Vec<CreateActionRow> {
@@ -51,263 +81,60 @@ pub fn render_poll_buttons(poll: &Poll) -> Vec<CreateActionRow> {
         .collect()
 }
 
-fn voters_for_choice(responses: &[Vote], choice: &str) -> Vec<VoterLabel> {
-    responses
+fn choice_field_name(choice: &str, responses: &[Vote]) -> String {
+    let count = responses
         .iter()
         .filter(|vote| vote.choice == choice)
-        .map(|vote| VoterLabel {
-            user_id: vote.user_id,
-            display_name: vote.display_name.clone(),
-        })
-        .collect()
+        .count();
+    format!("{} - {}", embed_text(choice), vote_count(count))
 }
 
-fn render_poll_panel(poll: &Poll, responses: &[Vote]) -> String {
-    const PANEL_WIDTH: usize = 58;
-    const COLUMN_WIDTH: usize = 18;
-    let mut lines = vec![top_border(PANEL_WIDTH)];
-
-    lines.extend(panel_wrapped_line(
-        &format!("📅 {}", clean_panel_text(&poll.title)),
-        PANEL_WIDTH,
-    ));
-    if let Some(description) = &poll.description {
-        lines.extend(panel_wrapped_line(
-            &clean_panel_text(description),
-            PANEL_WIDTH,
-        ));
-    }
-    lines.push(panel_blank_line(PANEL_WIDTH));
-
-    lines.extend(panel_columns(
-        &["🗓 When", "📍 Where", "👤 Creator"],
-        COLUMN_WIDTH,
-        PANEL_WIDTH,
-    ));
-    lines.extend(panel_columns(
-        &[
-            clean_panel_text(poll.when.as_deref().unwrap_or("Not specified")),
-            clean_panel_text(poll.location.as_deref().unwrap_or("Not specified")),
-            format!(
-                "@{}",
-                clean_panel_text(
-                    poll.created_by_name
-                        .as_deref()
-                        .unwrap_or(&poll.created_by.to_string())
-                )
-            ),
-        ],
-        COLUMN_WIDTH,
-        PANEL_WIDTH,
-    ));
-    lines.push(panel_blank_line(PANEL_WIDTH));
-
-    for choice_chunk in poll.choices.chunks(3) {
-        lines.extend(render_choice_columns(
-            choice_chunk,
-            responses,
-            COLUMN_WIDTH,
-            PANEL_WIDTH,
-        ));
-        lines.push(panel_blank_line(PANEL_WIDTH));
-    }
-
-    lines.extend(panel_wrapped_line(
-        &format!(
-            "Event ID: {} • Created on: {}",
-            poll.id,
-            poll.created_at.format("%-d %B %Y at %H:%M")
-        ),
-        PANEL_WIDTH,
-    ));
-    lines.push(bottom_border(PANEL_WIDTH));
-    lines.join("\n")
-}
-
-fn render_choice_columns(
-    choices: &[String],
-    responses: &[Vote],
-    column_width: usize,
-    panel_width: usize,
-) -> Vec<String> {
-    let headers = choices
+fn choice_field_value(choice: &str, responses: &[Vote]) -> String {
+    let voters = responses
         .iter()
-        .map(|choice| {
-            let count = responses
-                .iter()
-                .filter(|vote| vote.choice == *choice)
-                .count();
-            format!("{} - {count}", clean_panel_text(choice))
-        })
+        .filter(|vote| vote.choice == choice)
+        .map(|vote| user_mention(vote.user_id))
         .collect::<Vec<_>>();
-    let voters = choices
-        .iter()
-        .map(|choice| {
-            let labels = voters_for_choice(responses, choice)
-                .into_iter()
-                .map(|voter| voter.render())
-                .collect::<Vec<_>>();
-            if labels.is_empty() {
-                vec!["No one yet".to_string()]
-            } else {
-                labels
-            }
-        })
-        .collect::<Vec<_>>();
-    let max_voters = voters.iter().map(Vec::len).max().unwrap_or(1);
 
-    let mut lines = panel_columns(&headers, column_width, panel_width);
-    for row_index in 0..max_voters {
-        let row = voters
-            .iter()
-            .map(|choice_voters| choice_voters.get(row_index).cloned().unwrap_or_default())
-            .collect::<Vec<_>>();
-        lines.extend(panel_columns(&row, column_width, panel_width));
-    }
-    lines
-}
-
-fn top_border(width: usize) -> String {
-    format!("╭{}╮", "─".repeat(width))
-}
-
-fn bottom_border(width: usize) -> String {
-    format!("╰{}╯", "─".repeat(width))
-}
-
-fn panel_blank_line(width: usize) -> String {
-    panel_line("", width)
-}
-
-fn panel_wrapped_line(value: &str, panel_width: usize) -> Vec<String> {
-    wrap_text(value, panel_width)
-        .into_iter()
-        .map(|line| panel_line(&line, panel_width))
-        .collect()
-}
-
-fn panel_columns(
-    values: &[impl AsRef<str>],
-    column_width: usize,
-    panel_width: usize,
-) -> Vec<String> {
-    let wrapped = values
-        .iter()
-        .map(|value| wrap_text(value.as_ref(), column_width))
-        .collect::<Vec<_>>();
-    let max_rows = wrapped.iter().map(Vec::len).max().unwrap_or(1);
-    let mut lines = Vec::with_capacity(max_rows);
-
-    for row_index in 0..max_rows {
-        let content = wrapped
-            .iter()
-            .map(|lines| {
-                let value = lines.get(row_index).map(String::as_str).unwrap_or("");
-                pad_right(value, column_width)
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        lines.push(panel_line(&content, panel_width));
+    if voters.is_empty() {
+        return "_No one yet_".to_string();
     }
 
-    lines
-}
-
-fn panel_line(content: &str, width: usize) -> String {
-    format!("│{}│", pad_right(content, width))
-}
-
-fn wrap_text(value: &str, width: usize) -> Vec<String> {
-    let value = clean_panel_text(value);
-    if value.is_empty() {
-        return vec![String::new()];
-    }
-
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    for word in value.split_whitespace() {
-        let separator = usize::from(!current.is_empty());
-        if current.chars().count() + separator + word.chars().count() <= width {
-            if !current.is_empty() {
-                current.push(' ');
-            }
-            current.push_str(word);
-            continue;
-        }
-        if !current.is_empty() {
-            lines.push(current);
-            current = String::new();
-        }
-        if word.chars().count() <= width {
-            current.push_str(word);
-        } else {
-            lines.extend(split_long_word(word, width));
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
-}
-
-fn split_long_word(value: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    for character in value.chars() {
-        if current.chars().count() == width {
-            lines.push(current);
-            current = String::new();
-        }
-        current.push(character);
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
-}
-
-fn pad_right(value: &str, width: usize) -> String {
-    let value = truncate_cell(value, width);
-    let padding = width.saturating_sub(value.chars().count());
-    format!("{value}{}", " ".repeat(padding))
-}
-
-fn truncate_cell(value: &str, width: usize) -> String {
-    let value = clean_panel_text(value);
-    if value.chars().count() <= width {
+    let value = voters.join("\n");
+    if value.len() <= 1024 {
         return value;
     }
-    value
-        .chars()
-        .take(width.saturating_sub(1))
-        .collect::<String>()
-        + "…"
+
+    let mut trimmed = String::new();
+    for voter in voters {
+        if trimmed.len() + voter.len() + 1 > 1000 {
+            break;
+        }
+        if !trimmed.is_empty() {
+            trimmed.push('\n');
+        }
+        trimmed.push_str(&voter);
+    }
+    format!("{trimmed}\n…and more")
 }
 
-fn clean_panel_text(value: &str) -> String {
+fn vote_count(count: usize) -> String {
+    match count {
+        1 => "1 vote".to_string(),
+        _ => format!("{count} votes"),
+    }
+}
+
+fn user_mention(user_id: u64) -> String {
+    format!("<@{user_id}>")
+}
+
+fn embed_text(value: &str) -> String {
     value
         .replace('`', "'")
         .replace(['\n', '\r', '\t'], " ")
         .trim()
         .to_string()
-}
-
-struct VoterLabel {
-    user_id: u64,
-    display_name: Option<String>,
-}
-
-impl VoterLabel {
-    fn render(&self) -> String {
-        format!(
-            "@{}",
-            clean_panel_text(
-                self.display_name
-                    .as_deref()
-                    .unwrap_or(&self.user_id.to_string())
-            )
-        )
-    }
 }
 
 fn notification_allowed_mentions(notification: &PollNotification) -> CreateAllowedMentions {
@@ -336,7 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_poll_panel_with_final_layout() {
+    fn renders_clickable_mentions_for_poll_people() {
         let poll = Poll {
             id: "f531adfd".to_string(),
             title: "Tal-Aħħar".to_string(),
@@ -373,19 +200,18 @@ mod tests {
             },
         ];
 
-        let panel = render_poll_panel(&poll, &votes);
-
-        assert!(panel.contains("📅 Tal-Aħħar"));
-        assert!(panel.contains("🗓 When"));
-        assert!(panel.contains("📍 Where"));
-        assert!(panel.contains("👤 Creator"));
-        assert!(panel.contains("caru tond - 2"));
-        assert!(panel.contains("bajd u patata - 1"));
-        assert!(panel.contains("flat - 0"));
-        assert!(panel.contains("@FriendOne"));
-        assert!(panel.contains("@EventCreator"));
-        assert!(panel.contains("@FriendTwo"));
-        assert!(panel.contains("No one yet"));
-        assert!(panel.contains("Event ID: f531adfd"));
+        assert_eq!(user_mention(poll.created_by), "<@42>");
+        assert_eq!(
+            choice_field_name("caru tond", &votes),
+            "caru tond - 2 votes"
+        );
+        assert_eq!(
+            choice_field_name("bajd u patata", &votes),
+            "bajd u patata - 1 vote"
+        );
+        assert_eq!(choice_field_name("flat", &votes), "flat - 0 votes");
+        assert_eq!(choice_field_value("caru tond", &votes), "<@1>\n<@2>");
+        assert_eq!(choice_field_value("bajd u patata", &votes), "<@3>");
+        assert_eq!(choice_field_value("flat", &votes), "_No one yet_");
     }
 }
