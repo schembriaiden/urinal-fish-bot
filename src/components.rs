@@ -50,7 +50,7 @@ pub async fn handle_component(
     let response = CreateInteractionResponse::UpdateMessage(
         CreateInteractionResponseMessage::new()
             .embed(render_poll_embed(&poll, &responses))
-            .components(render_poll_buttons(&poll, &responses)),
+            .components(render_poll_buttons(&poll)),
     );
 
     component

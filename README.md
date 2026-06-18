@@ -127,34 +127,40 @@ cargo fmt
 
 ## Commands
 
+Show a quick command guide:
+
+```text
+/help
+```
+
 Create a one-off event:
 
 ```text
-/event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe description: Meet outside the pub
+/event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe where: Valletta description: Meet outside the pub
 ```
 
 Notify a user or role when the poll is posted:
 
 ```text
-/event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe notify: @friends
+/event single title: Drinks Friday when: Friday 20:00 choices: yes,no,maybe where: Valletta notify: @friends
 ```
 
 Create a one-off event with custom choices. The bot remembers these and suggests them the next time you type `choices`:
 
 ```text
-/event single title: Food after work when: Friday 18:30 choices: pizza,sushi,no,maybe
+/event single title: Food after work when: Friday 18:30 choices: pizza,sushi,no,maybe where: Valletta
 ```
 
 Create a recurring event:
 
 ```text
-/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe
+/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe where: Valletta
 ```
 
 Recurring events can also notify a user or role whenever the scheduled poll is posted:
 
 ```text
-/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe notify: @friends
+/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe where: Valletta notify: @friends
 ```
 
 Supported recurring schedules:

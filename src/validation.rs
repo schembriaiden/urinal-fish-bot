@@ -3,6 +3,7 @@ use anyhow::{Result, anyhow};
 const MAX_TITLE_LEN: usize = 100;
 const MAX_DESCRIPTION_LEN: usize = 800;
 const MAX_WHEN_LEN: usize = 120;
+const MAX_LOCATION_LEN: usize = 120;
 
 pub fn poll_title(value: String) -> Result<String> {
     clean_text(value, "title", MAX_TITLE_LEN)
@@ -17,6 +18,12 @@ pub fn optional_description(value: Option<String>) -> Result<Option<String>> {
 pub fn optional_when(value: Option<String>) -> Result<Option<String>> {
     value
         .map(|value| clean_text(value, "when", MAX_WHEN_LEN))
+        .transpose()
+}
+
+pub fn optional_location(value: Option<String>) -> Result<Option<String>> {
+    value
+        .map(|value| clean_text(value, "where", MAX_LOCATION_LEN))
         .transpose()
 }
 

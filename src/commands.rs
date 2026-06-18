@@ -16,6 +16,7 @@ use crate::{Context, Error};
 
 pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
     vec![
+        help(),
         event(),
         series_list(),
         series_delete(),
@@ -24,6 +25,14 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
         easter_status(),
         easter_disable(),
     ]
+}
+
+/// Show Urinal Fish help.
+#[poise::command(slash_command)]
+pub async fn help(ctx: Context<'_>) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    reply_ephemeral(ctx, help_text()).await
 }
 
 /// Create event polls.
@@ -38,11 +47,14 @@ pub async fn single(
     ctx: Context<'_>,
     #[description = "Event title"] title: String,
     #[description = "When this is happening"] when: String,
-    #[description = "Extra details"] description: Option<String>,
     #[description = "Comma-separated choices, for example: yes,no,maybe"]
     #[autocomplete = "autocomplete_choices"]
     choices: String,
-    #[description = "Optional users or roles to ping, for example: @friends @Philip"]
+    #[description = "Where this is happening"]
+    #[rename = "where"]
+    where_location: Option<String>,
+    #[description = "Extra details"] description: Option<String>,
+    #[description = "Optional users or roles to ping, for example: @friends @person"]
     notify: Option<String>,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
@@ -51,6 +63,7 @@ pub async fn single(
     let title = validation::poll_title(title)?;
     let description = validation::optional_description(description)?;
     let when = validation::optional_when(Some(when))?;
+    let location = validation::optional_location(where_location)?;
     let choices = parse_choices(&choices)?;
     let notification = parse_notification(notify)?;
     ctx.data().store.record_choice_history(&choices).await?;
@@ -58,6 +71,7 @@ pub async fn single(
         title,
         description,
         when,
+        location,
         choices,
         channel_id: channel_id.get(),
         recurring_id: None,
@@ -104,24 +118,23 @@ pub async fn recurring(
     ctx: Context<'_>,
     #[description = "Event title"] title: String,
     #[description = "daily 19:00, weekly fri 20:00, or monthly 15 19:30"] schedule: String,
-    #[description = "Extra details"] description: Option<String>,
     #[description = "Comma-separated choices, for example: yes,no,maybe"]
     #[autocomplete = "autocomplete_choices"]
     choices: String,
+    #[description = "Where this recurring event happens"]
+    #[rename = "where"]
+    where_location: Option<String>,
+    #[description = "Extra details"] description: Option<String>,
     #[description = "Optional users or roles to ping whenever the recurring poll posts"]
     notify: Option<String>,
-    #[description = "IANA timezone, default comes from DEFAULT_TIMEZONE"] timezone: Option<String>,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
     let channel_id = ctx.channel_id();
     let title = validation::poll_title(title)?;
     let description = validation::optional_description(description)?;
-    let timezone = timezone
-        .map(|value| value.parse())
-        .transpose()
-        .context("timezone must be an IANA timezone like Europe/Malta")?
-        .unwrap_or(ctx.data().config.default_timezone);
+    let location = validation::optional_location(where_location)?;
+    let timezone = ctx.data().config.default_timezone;
     let choices = parse_choices(&choices)?;
     let notification = parse_notification(notify)?;
     ctx.data().store.record_choice_history(&choices).await?;
@@ -132,6 +145,7 @@ pub async fn recurring(
         title,
         description,
         schedule,
+        location,
         timezone,
         choices,
         notification,
@@ -440,7 +454,7 @@ fn parse_notification(value: Option<String>) -> Result<Option<PollNotification>,
             continue;
         }
         return Err(anyhow!(
-            "notify can only contain user or role mentions, like @Philip or @friends"
+            "notify can only contain user or role mentions, like @person or @friends"
         ));
     }
 
@@ -478,6 +492,33 @@ fn display_name_for_user(user: &User) -> String {
         .as_deref()
         .unwrap_or(&user.name)
         .to_string()
+}
+
+fn help_text() -> String {
+    [
+        "**Urinal Fish help**",
+        "",
+        "**Create a one-off poll**",
+        "`/event single title: Drinks when: Friday 20:00 choices: yes,no,maybe where: Valletta`",
+        "",
+        "**Create a recurring poll**",
+        "`/event recurring title: Friday drinks schedule: weekly fri 20:00 choices: yes,no,maybe where: Valletta`",
+        "",
+        "**Useful options**",
+        "`choices` is comma-separated and required. Previously used choice sets are suggested while typing.",
+        "`where`, `description`, and `notify` are optional. `notify` can ping users or roles.",
+        "",
+        "**Recurring schedules**",
+        "`daily 19:00`, `weekly fri 20:00`, `friday 20:00`, `monthly 15 19:30`",
+        "",
+        "**Manage recurring events**",
+        "`/series_list` shows active recurring events.",
+        "`/series_delete id:<series id>` stops one.",
+        "",
+        "**Voting**",
+        "Press a choice button to vote. Pressing a different button changes your vote.",
+    ]
+    .join("\n")
 }
 
 async fn autocomplete_choices(ctx: Context<'_>, partial: &str) -> Vec<String> {

@@ -57,6 +57,7 @@ impl Store {
                     title TEXT NOT NULL,
                     description TEXT,
                     when_text TEXT,
+                    location_text TEXT,
                     choices_json TEXT NOT NULL,
                     channel_id INTEGER NOT NULL,
                     message_id INTEGER,
@@ -81,6 +82,7 @@ impl Store {
                     title TEXT NOT NULL,
                     description TEXT,
                     schedule TEXT NOT NULL,
+                    location_text TEXT,
                     timezone TEXT NOT NULL,
                     choices_json TEXT NOT NULL,
                     notification_text TEXT,
@@ -155,6 +157,18 @@ impl Store {
         )
         .await?;
         self.ensure_column(
+            "polls",
+            "location_text",
+            "ALTER TABLE polls ADD COLUMN location_text TEXT",
+        )
+        .await?;
+        self.ensure_column(
+            "recurring_series",
+            "location_text",
+            "ALTER TABLE recurring_series ADD COLUMN location_text TEXT",
+        )
+        .await?;
+        self.ensure_column(
             "recurring_series",
             "created_by_name",
             "ALTER TABLE recurring_series ADD COLUMN created_by_name TEXT",
@@ -181,16 +195,17 @@ impl Store {
         sqlx::query(
             r#"
             INSERT INTO polls
-                (id, title, description, when_text, choices_json, channel_id, message_id,
+                (id, title, description, when_text, location_text, choices_json, channel_id, message_id,
                  recurring_id, created_by, created_by_name, created_at)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             "#,
         )
         .bind(&poll.id)
         .bind(&poll.title)
         .bind(&poll.description)
         .bind(&poll.when)
+        .bind(&poll.location)
         .bind(serde_json::to_string(&poll.choices)?)
         .bind(to_i64(poll.channel_id)?)
         .bind(poll.message_id.map(to_i64).transpose()?)
@@ -215,7 +230,7 @@ impl Store {
     pub async fn get_poll(&self, poll_id: &str) -> Result<Option<Poll>> {
         let row = sqlx::query(
             r#"
-            SELECT id, title, description, when_text, choices_json, channel_id, message_id,
+            SELECT id, title, description, when_text, location_text, choices_json, channel_id, message_id,
                    recurring_id, created_by, created_by_name, created_at
             FROM polls
             WHERE id = ?1
@@ -320,11 +335,12 @@ impl Store {
             r#"
             INSERT INTO recurring_series
                 (id, title, description, schedule, timezone, choices_json,
+                 location_text,
                  notification_text, notification_user_ids_json, notification_role_ids_json,
                  channel_id,
                  created_by, created_by_name, next_post_at, active, created_at)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 1, ?15)
             "#,
         )
         .bind(&series.id)
@@ -333,6 +349,7 @@ impl Store {
         .bind(&series.schedule)
         .bind(series.timezone.name())
         .bind(serde_json::to_string(&series.choices)?)
+        .bind(&series.location)
         .bind(
             series
                 .notification
@@ -366,7 +383,7 @@ impl Store {
     pub async fn list_active_series(&self) -> Result<Vec<RecurringSeries>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, title, description, schedule, timezone, choices_json, channel_id,
+            SELECT id, title, description, schedule, location_text, timezone, choices_json, channel_id,
                    notification_text, notification_user_ids_json, notification_role_ids_json,
                    created_by, created_by_name, next_post_at
             FROM recurring_series
@@ -383,7 +400,7 @@ impl Store {
     pub async fn due_series(&self, now: DateTime<Utc>) -> Result<Vec<RecurringSeries>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, title, description, schedule, timezone, choices_json, channel_id,
+            SELECT id, title, description, schedule, location_text, timezone, choices_json, channel_id,
                    notification_text, notification_user_ids_json, notification_role_ids_json,
                    created_by, created_by_name, next_post_at
             FROM recurring_series
@@ -581,6 +598,7 @@ fn row_to_poll(row: sqlx::sqlite::SqliteRow) -> Result<Poll> {
         title: row.try_get("title")?,
         description: row.try_get("description")?,
         when: row.try_get("when_text")?,
+        location: row.try_get("location_text")?,
         choices: serde_json::from_str(&choices_json)?,
         channel_id: to_u64(row.try_get::<i64, _>("channel_id")?)?,
         message_id: row
@@ -612,6 +630,7 @@ fn row_to_series(row: sqlx::sqlite::SqliteRow) -> Result<RecurringSeries> {
         title: row.try_get("title")?,
         description: row.try_get("description")?,
         schedule: row.try_get("schedule")?,
+        location: row.try_get("location_text")?,
         timezone: timezone.parse().unwrap_or(chrono_tz::UTC),
         choices: serde_json::from_str(&choices_json)?,
         notification: row_to_notification(&row)?,

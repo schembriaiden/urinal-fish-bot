@@ -33,6 +33,7 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
                 series.schedule,
                 format_discord_time(series.next_post_at)
             )),
+            location: series.location.clone(),
             choices: series.choices.clone(),
             channel_id: series.channel_id,
             recurring_id: Some(series.id.clone()),
