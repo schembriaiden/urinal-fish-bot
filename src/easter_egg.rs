@@ -31,6 +31,10 @@ pub fn choose_message(messages: &[String]) -> Option<String> {
     Some(messages[index].clone())
 }
 
+pub fn format_taunt_message(target_user_id: u64, message: &str) -> String {
+    format!("<@{target_user_id}> {message}")
+}
+
 pub fn random_scheduled_at(
     date: NaiveDate,
     start_minute: u16,
@@ -139,5 +143,12 @@ mod tests {
     fn winning_roll_is_eleven() {
         assert!(is_winning_roll(11));
         assert!(!is_winning_roll(12));
+    }
+
+    #[test]
+    fn formats_taunt_message_with_target_mention() {
+        let message = format_taunt_message(123, "Bring a permission slip.");
+
+        assert_eq!(message, "<@123> Bring a permission slip.");
     }
 }

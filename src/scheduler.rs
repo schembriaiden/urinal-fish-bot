@@ -158,7 +158,7 @@ async fn send_due_easter_egg_taunts(
 ) -> Result<()> {
     let taunts = data.store.due_easter_egg_taunts(now).await?;
     for taunt in taunts {
-        let content = format!("<@{}> {}", taunt.target_user_id, taunt.message);
+        let content = easter_egg::format_taunt_message(taunt.target_user_id, &taunt.message);
         match ChannelId::new(taunt.channel_id)
             .send_message(http, CreateMessage::new().content(content))
             .await

@@ -196,6 +196,12 @@ Add more easter egg messages:
 /easter_add_message message: Your planning skills need adult supervision.
 ```
 
+Send one test easter egg message immediately in the current channel:
+
+```text
+/easter_test
+```
+
 Check or disable it:
 
 ```text

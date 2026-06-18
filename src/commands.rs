@@ -1,6 +1,6 @@
 use anyhow::{Context as AnyhowContext, anyhow};
 use chrono::Utc;
-use poise::serenity_prelude::User;
+use poise::serenity_prelude::{CreateAllowedMentions, CreateMessage, User, UserId};
 use tracing::{info, warn};
 
 use crate::choices::{default_choices, parse_choices};
@@ -23,6 +23,7 @@ pub fn commands() -> Vec<poise::Command<crate::Data, Error>> {
         easter_set(),
         easter_add_message(),
         easter_status(),
+        easter_test(),
         easter_disable(),
     ]
 }
@@ -363,6 +364,52 @@ pub async fn easter_status(ctx: Context<'_>) -> Result<(), Error> {
     .await
 }
 
+/// Send one easter egg message immediately in this channel for testing.
+#[poise::command(
+    slash_command,
+    default_member_permissions = "ADMINISTRATOR",
+    required_permissions = "ADMINISTRATOR"
+)]
+pub async fn easter_test(ctx: Context<'_>) -> Result<(), Error> {
+    ensure_allowed_channel(ctx).await?;
+
+    let Some(settings) = ctx.data().store.easter_egg_settings().await? else {
+        return reply_ephemeral(ctx, "Use `/easter_set` first.".to_string()).await;
+    };
+    let messages = ctx.data().store.list_easter_egg_messages().await?;
+    let message_pool = messages
+        .into_iter()
+        .map(|message| message.message)
+        .collect::<Vec<_>>();
+    let Some(message) = easter_egg::choose_message(&message_pool) else {
+        return reply_ephemeral(
+            ctx,
+            "No easter egg messages are configured. Use `/easter_add_message` first.".to_string(),
+        )
+        .await;
+    };
+
+    let content = easter_egg::format_taunt_message(settings.target_user_id, &message);
+    ctx.channel_id()
+        .send_message(
+            &ctx.serenity_context().http,
+            CreateMessage::new()
+                .content(content)
+                .allowed_mentions(easter_test_allowed_mentions(settings.target_user_id)),
+        )
+        .await
+        .context("failed to send easter egg test message")?;
+
+    info!(
+        target_user_id = settings.target_user_id,
+        channel_id = ctx.channel_id().get(),
+        tested_by = ctx.author().id.get(),
+        "sent easter egg test message"
+    );
+
+    reply_ephemeral(ctx, "Sent easter egg test message.".to_string()).await
+}
+
 /// Disable the easter egg without deleting its configured messages.
 #[poise::command(
     slash_command,
@@ -517,6 +564,13 @@ fn series_notification_summary(notification: Option<&PollNotification>) -> Strin
 fn series_when_summary(when: &str) -> &str {
     let when = when.trim();
     if when.is_empty() { "not set" } else { when }
+}
+
+fn easter_test_allowed_mentions(target_user_id: u64) -> CreateAllowedMentions {
+    CreateAllowedMentions::new()
+        .users([UserId::new(target_user_id)])
+        .everyone(false)
+        .replied_user(false)
 }
 
 fn help_text() -> String {
