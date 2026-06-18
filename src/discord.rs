@@ -147,11 +147,11 @@ fn filled_text(value: Option<&str>) -> Option<&str> {
 }
 
 fn spacer_name() -> &'static str {
-    "\u{200B}"
+    "\u{2800}"
 }
 
 fn spacer_value() -> &'static str {
-    "\u{200B}"
+    "\u{2800}"
 }
 
 fn embed_text(value: &str) -> String {
