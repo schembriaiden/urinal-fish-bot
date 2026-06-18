@@ -48,7 +48,9 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote], timezone: Tz) -> Creat
             true,
         );
     } else {
-        embed = embed.field("👤 Creator", user_mention(poll.created_by), false);
+        embed = embed
+            .field("👤 Creator", user_mention(poll.created_by), true)
+            .field(inline_spacer(), inline_spacer(), true);
     }
 
     for choice in &poll.choices {
@@ -139,6 +141,10 @@ fn format_created_at(created_at: DateTime<Utc>, timezone: Tz) -> String {
         .with_timezone(&timezone)
         .format("%-d %B %Y at %H:%M")
         .to_string()
+}
+
+fn inline_spacer() -> &'static str {
+    "\u{2800}"
 }
 
 fn filled_text(value: Option<&str>) -> Option<&str> {
