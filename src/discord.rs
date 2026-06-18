@@ -53,7 +53,7 @@ pub fn render_poll_embed(poll: &Poll, responses: &[Vote]) -> CreateEmbed {
         embed = embed.field(
             choice_field_name(choice, responses),
             choice_field_value(choice, responses),
-            false,
+            true,
         );
     }
 
