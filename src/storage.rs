@@ -536,15 +536,6 @@ impl Store {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn easter_egg_run_exists(&self, run_date: &str) -> Result<bool> {
-        let row = sqlx::query("SELECT 1 FROM easter_egg_daily_runs WHERE run_date = ?1")
-            .bind(run_date)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        Ok(row.is_some())
-    }
-
     pub async fn record_easter_egg_trigger(
         &self,
         run_date: &str,
@@ -555,10 +546,19 @@ impl Store {
     ) -> Result<bool> {
         let result = sqlx::query(
             r#"
-            INSERT OR IGNORE INTO easter_egg_daily_runs
+            INSERT INTO easter_egg_daily_runs
                 (run_date, roll, sent_at, target_user_id, channel_id, message)
             VALUES
                 (?1, 0, ?2, ?3, ?4, ?5)
+            ON CONFLICT(run_date)
+            DO UPDATE SET
+                roll = excluded.roll,
+                scheduled_at = NULL,
+                sent_at = excluded.sent_at,
+                target_user_id = excluded.target_user_id,
+                channel_id = excluded.channel_id,
+                message = excluded.message
+            WHERE easter_egg_daily_runs.sent_at IS NULL
             "#,
         )
         .bind(run_date)
@@ -748,7 +748,44 @@ mod tests {
                 .await
                 .unwrap()
         );
-        assert!(store.easter_egg_run_exists("2026-06-26").await.unwrap());
+        assert!(
+            !store
+                .record_easter_egg_trigger("2026-06-26", 42, 99, "Again", Utc::now())
+                .await
+                .unwrap()
+        );
+
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn trigger_overwrites_unsent_legacy_daily_run() {
+        let path = std::env::temp_dir().join(format!(
+            "urinal-fish-easter-legacy-trigger-test-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let path = path.to_string_lossy().into_owned();
+        let store = Store::open(&path).await.unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO easter_egg_daily_runs (run_date, roll)
+            VALUES (?1, ?2)
+            "#,
+        )
+        .bind("2026-06-26")
+        .bind(7_i64)
+        .execute(&store.pool)
+        .await
+        .unwrap();
+
+        assert!(
+            store
+                .record_easter_egg_trigger("2026-06-26", 42, 99, "Test message", Utc::now())
+                .await
+                .unwrap()
+        );
         assert!(
             !store
                 .record_easter_egg_trigger("2026-06-26", 42, 99, "Again", Utc::now())

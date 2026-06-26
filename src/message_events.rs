@@ -28,9 +28,6 @@ async fn maybe_send_easter_egg(ctx: &Context, data: &Data, message: &Message) ->
     }
 
     let run_date = easter_egg::trigger_date(Utc::now(), data.config.default_timezone).to_string();
-    if data.store.easter_egg_run_exists(&run_date).await? {
-        return Ok(());
-    }
 
     let messages = data.store.list_easter_egg_messages().await?;
     let message_pool = messages
