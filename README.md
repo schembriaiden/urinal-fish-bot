@@ -187,7 +187,7 @@ Stop a recurring series:
 Admin-only easter egg setup:
 
 ```text
-/easter_set target: @person start_time: 09:00 end_time: 22:00 message: Bring a permission slip next time.
+/easter_set target: @person message: Bring a permission slip next time.
 ```
 
 Add more easter egg messages:
@@ -215,7 +215,7 @@ Check or disable it:
 /easter_disable
 ```
 
-The easter egg uses the channel where `/easter_set` is run. Every day after 04:00 in `DEFAULT_TIMEZONE`, the bot rolls 1-20 once. If the roll is 11, it posts one configured message tagging the configured user at a random time between `start_time` and `end_time`.
+The easter egg uses the channel where `/easter_set` is run. The first time the configured user posts in that channel each day, using `DEFAULT_TIMEZONE` for the day boundary, the bot sends one random configured message tagging that user. It will not send another easter egg message for that user until the next day.
 
 ## Single Pi Deployment
 

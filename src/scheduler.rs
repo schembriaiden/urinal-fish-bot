@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use anyhow::{Context as AnyhowContext, Result};
 use chrono::Utc;
-use poise::serenity_prelude::{ChannelId, CreateMessage, Http};
+use poise::serenity_prelude::{ChannelId, Http};
 use tokio::time::sleep;
 use tracing::{error, info};
 
 use crate::Data;
 use crate::discord::render_poll_message;
-use crate::easter_egg;
 use crate::models::{NewPoll, Poll};
 use crate::recurrence::next_occurrence;
 
@@ -22,7 +21,6 @@ pub async fn run(data: Arc<Data>, http: Arc<Http>) {
 }
 
 async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
-    let now = Utc::now();
     let due_series = data.store.due_series(Utc::now()).await?;
     for series in due_series {
         let poll = Poll::new(NewPoll {
@@ -78,9 +76,6 @@ async fn tick(data: &Data, http: &Arc<Http>) -> Result<()> {
             .await?;
     }
 
-    roll_easter_egg_if_due(data).await?;
-    send_due_easter_egg_taunts(data, http, now).await?;
-
     Ok(())
 }
 
@@ -90,98 +85,4 @@ fn series_when_text(when: &str, next_post_at: chrono::DateTime<Utc>) -> String {
         return next_post_at.format("%A %H:%M").to_string();
     }
     when.to_string()
-}
-
-async fn roll_easter_egg_if_due(data: &Data) -> Result<()> {
-    let Some(date) = easter_egg::roll_cutoff_date(Utc::now(), data.config.default_timezone) else {
-        return Ok(());
-    };
-    let run_date = date.to_string();
-    if data.store.easter_egg_run_exists(&run_date).await? {
-        return Ok(());
-    }
-
-    let Some(settings) = data.store.easter_egg_settings().await? else {
-        return Ok(());
-    };
-    if !settings.enabled {
-        return Ok(());
-    }
-
-    let roll = easter_egg::roll_d20();
-    if !easter_egg::is_winning_roll(roll) {
-        data.store
-            .record_easter_egg_roll(&run_date, roll, None, None, None, None)
-            .await?;
-        info!("easter egg roll for {run_date}: {roll}");
-        return Ok(());
-    }
-
-    let messages = data.store.list_easter_egg_messages().await?;
-    let message_pool = messages
-        .into_iter()
-        .map(|message| message.message)
-        .collect::<Vec<_>>();
-    let Some(message) = easter_egg::choose_message(&message_pool) else {
-        data.store
-            .record_easter_egg_roll(&run_date, roll, None, None, None, None)
-            .await?;
-        info!("easter egg roll for {run_date}: {roll}, but no messages were configured");
-        return Ok(());
-    };
-    let scheduled_at = easter_egg::random_scheduled_at(
-        date,
-        settings.window_start_minute,
-        settings.window_end_minute,
-        data.config.default_timezone,
-    )?;
-
-    data.store
-        .record_easter_egg_roll(
-            &run_date,
-            roll,
-            Some(scheduled_at),
-            Some(settings.target_user_id),
-            Some(settings.channel_id),
-            Some(&message),
-        )
-        .await?;
-    info!("easter egg roll for {run_date}: {roll}, scheduled at {scheduled_at}");
-
-    Ok(())
-}
-
-async fn send_due_easter_egg_taunts(
-    data: &Data,
-    http: &Arc<Http>,
-    now: chrono::DateTime<Utc>,
-) -> Result<()> {
-    let taunts = data.store.due_easter_egg_taunts(now).await?;
-    for taunt in taunts {
-        let content = easter_egg::format_taunt_message(taunt.target_user_id, &taunt.message);
-        match ChannelId::new(taunt.channel_id)
-            .send_message(http, CreateMessage::new().content(content))
-            .await
-        {
-            Ok(_) => {
-                data.store
-                    .mark_easter_egg_sent(&taunt.run_date, Utc::now())
-                    .await?;
-                info!(
-                    run_date = %taunt.run_date,
-                    channel_id = taunt.channel_id,
-                    target_user_id = taunt.target_user_id,
-                    "posted easter egg taunt"
-                );
-            }
-            Err(err) => {
-                error!(
-                    "failed to post easter egg taunt for {} in channel {}: {err:?}",
-                    taunt.run_date, taunt.channel_id
-                );
-            }
-        }
-    }
-
-    Ok(())
 }

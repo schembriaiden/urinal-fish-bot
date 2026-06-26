@@ -7,8 +7,7 @@ use sqlx::{Executor, Row, SqlitePool};
 use tracing::info;
 
 use crate::models::{
-    DueEasterEggTaunt, EasterEggMessage, EasterEggSettings, Poll, PollNotification,
-    RecurringSeries, Vote,
+    EasterEggMessage, EasterEggSettings, Poll, PollNotification, RecurringSeries, Vote,
 };
 
 #[derive(Clone)]
@@ -546,63 +545,31 @@ impl Store {
         Ok(row.is_some())
     }
 
-    pub async fn record_easter_egg_roll(
+    pub async fn record_easter_egg_trigger(
         &self,
         run_date: &str,
-        roll: u8,
-        scheduled_at: Option<DateTime<Utc>>,
-        target_user_id: Option<u64>,
-        channel_id: Option<u64>,
-        message: Option<&str>,
+        target_user_id: u64,
+        channel_id: u64,
+        message: &str,
+        sent_at: DateTime<Utc>,
     ) -> Result<bool> {
         let result = sqlx::query(
             r#"
             INSERT OR IGNORE INTO easter_egg_daily_runs
-                (run_date, roll, scheduled_at, target_user_id, channel_id, message)
+                (run_date, roll, sent_at, target_user_id, channel_id, message)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6)
+                (?1, 0, ?2, ?3, ?4, ?5)
             "#,
         )
         .bind(run_date)
-        .bind(i64::from(roll))
-        .bind(scheduled_at.map(|time| time.to_rfc3339()))
-        .bind(target_user_id.map(to_i64).transpose()?)
-        .bind(channel_id.map(to_i64).transpose()?)
+        .bind(sent_at.to_rfc3339())
+        .bind(to_i64(target_user_id)?)
+        .bind(to_i64(channel_id)?)
         .bind(message)
         .execute(&self.pool)
         .await?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    pub async fn due_easter_egg_taunts(
-        &self,
-        now: DateTime<Utc>,
-    ) -> Result<Vec<DueEasterEggTaunt>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT run_date, target_user_id, channel_id, message
-            FROM easter_egg_daily_runs
-            WHERE scheduled_at IS NOT NULL
-              AND sent_at IS NULL
-              AND scheduled_at <= ?1
-            ORDER BY scheduled_at
-            "#,
-        )
-        .bind(now.to_rfc3339())
-        .fetch_all(&self.pool)
-        .await?;
-
-        rows.into_iter().map(row_to_due_easter_egg_taunt).collect()
-    }
-
-    pub async fn mark_easter_egg_sent(&self, run_date: &str, sent_at: DateTime<Utc>) -> Result<()> {
-        sqlx::query("UPDATE easter_egg_daily_runs SET sent_at = ?1 WHERE run_date = ?2")
-            .bind(sent_at.to_rfc3339())
-            .bind(run_date)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
     }
 }
 
@@ -691,15 +658,6 @@ fn row_to_easter_egg_message(row: sqlx::sqlite::SqliteRow) -> Result<EasterEggMe
     })
 }
 
-fn row_to_due_easter_egg_taunt(row: sqlx::sqlite::SqliteRow) -> Result<DueEasterEggTaunt> {
-    Ok(DueEasterEggTaunt {
-        run_date: row.try_get("run_date")?,
-        target_user_id: to_u64(row.try_get::<i64, _>("target_user_id")?)?,
-        channel_id: to_u64(row.try_get::<i64, _>("channel_id")?)?,
-        message: row.try_get("message")?,
-    })
-}
-
 fn parse_utc(value: &str) -> Result<DateTime<Utc>> {
     Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
 }
@@ -770,6 +728,33 @@ mod tests {
         assert!(store.delete_easter_egg_message("abc12345").await.unwrap());
         assert!(!store.delete_easter_egg_message("abc12345").await.unwrap());
         assert!(store.list_easter_egg_messages().await.unwrap().is_empty());
+
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn records_easter_egg_trigger_once_per_date() {
+        let path = std::env::temp_dir().join(format!(
+            "urinal-fish-easter-trigger-test-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let path = path.to_string_lossy().into_owned();
+        let store = Store::open(&path).await.unwrap();
+
+        assert!(
+            store
+                .record_easter_egg_trigger("2026-06-26", 42, 99, "Test message", Utc::now())
+                .await
+                .unwrap()
+        );
+        assert!(store.easter_egg_run_exists("2026-06-26").await.unwrap());
+        assert!(
+            !store
+                .record_easter_egg_trigger("2026-06-26", 42, 99, "Again", Utc::now())
+                .await
+                .unwrap()
+        );
 
         drop(store);
         let _ = std::fs::remove_file(path);

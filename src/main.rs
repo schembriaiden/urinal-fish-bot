@@ -4,6 +4,7 @@ mod components;
 mod config;
 mod discord;
 mod easter_egg;
+mod message_events;
 mod models;
 mod recurrence;
 mod scheduler;
@@ -14,7 +15,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as AnyhowContext, Result};
 use poise::serenity_prelude as serenity;
-use serenity::{EventHandler, Interaction, async_trait};
+use serenity::{EventHandler, Interaction, Message, async_trait};
 use tracing::{error, info};
 
 use crate::config::Config;
@@ -29,12 +30,12 @@ pub struct Data {
     pub store: Store,
 }
 
-struct ComponentHandler {
+struct BotEventHandler {
     data: Data,
 }
 
 #[async_trait]
-impl EventHandler for ComponentHandler {
+impl EventHandler for BotEventHandler {
     async fn interaction_create(&self, ctx: serenity::Context, interaction: Interaction) {
         let result = match interaction {
             Interaction::Component(component) => {
@@ -45,6 +46,12 @@ impl EventHandler for ComponentHandler {
 
         if let Err(err) = result {
             error!("component event failed: {err:?}");
+        }
+    }
+
+    async fn message(&self, ctx: serenity::Context, message: Message) {
+        if let Err(err) = message_events::handle_message(&ctx, &self.data, &message).await {
+            error!("message event failed: {err:?}");
         }
     }
 }
@@ -106,7 +113,7 @@ async fn main() -> Result<()> {
     let intents = serenity::GatewayIntents::non_privileged();
     let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
-        .event_handler(ComponentHandler {
+        .event_handler(BotEventHandler {
             data: component_data,
         })
         .await

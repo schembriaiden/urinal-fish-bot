@@ -143,14 +143,6 @@ impl EasterEggMessage {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct DueEasterEggTaunt {
-    pub run_date: String,
-    pub target_user_id: u64,
-    pub channel_id: u64,
-    pub message: String,
-}
-
 fn short_id() -> String {
     Uuid::new_v4().simple().to_string()[..8].to_string()
 }

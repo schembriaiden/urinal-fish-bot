@@ -228,7 +228,7 @@ pub async fn series_delete(
     reply_ephemeral(ctx, message).await
 }
 
-/// Configure the easter egg target, posting window, and first message.
+/// Configure the easter egg target and first message.
 #[poise::command(
     slash_command,
     default_member_permissions = "ADMINISTRATOR",
@@ -237,23 +237,18 @@ pub async fn series_delete(
 pub async fn easter_set(
     ctx: Context<'_>,
     #[description = "User to target"] target: User,
-    #[description = "Earliest send time, HH:MM, 04:00 or later"] start_time: String,
-    #[description = "Latest send time, HH:MM"] end_time: String,
     #[description = "First message to add to the pool"] message: String,
 ) -> Result<(), Error> {
     ensure_allowed_channel(ctx).await?;
 
-    let start_minute = easter_egg::parse_time(&start_time, "start_time")?;
-    let end_minute = easter_egg::parse_time(&end_time, "end_time")?;
-    easter_egg::validate_window(start_minute, end_minute)?;
     let message = validation::clean_text(message, "easter egg message", 200)?;
 
     let settings = EasterEggSettings {
         enabled: true,
         target_user_id: target.id.get(),
         channel_id: ctx.channel_id().get(),
-        window_start_minute: start_minute,
-        window_end_minute: end_minute,
+        window_start_minute: 0,
+        window_end_minute: 1439,
         updated_by: ctx.author().id.get(),
     };
     ctx.data()
@@ -274,11 +269,8 @@ pub async fn easter_set(
     reply_ephemeral(
         ctx,
         format!(
-            "Easter egg enabled for <@{}> in <#{}>. Daily roll is at 04:00; on an 11, I will post between {} and {}.",
-            settings.target_user_id,
-            settings.channel_id,
-            easter_egg::format_time(settings.window_start_minute),
-            easter_egg::format_time(settings.window_end_minute)
+            "Easter egg enabled for <@{}> in <#{}>. I will send one random message the first time they post each day.",
+            settings.target_user_id, settings.channel_id
         ),
     )
     .await
@@ -383,11 +375,9 @@ pub async fn easter_status(ctx: Context<'_>) -> Result<(), Error> {
     reply_ephemeral(
         ctx,
         format!(
-            "Easter egg is {status}.\nTarget: <@{}>\nChannel: <#{}>\nWindow: {}-{}\nMessages: {}\n{}",
+            "Easter egg is {status}.\nTarget: <@{}>\nChannel: <#{}>\nTrigger: first message from target each day\nMessages: {}\n{}",
             settings.target_user_id,
             settings.channel_id,
-            easter_egg::format_time(settings.window_start_minute),
-            easter_egg::format_time(settings.window_end_minute),
             messages.len(),
             preview
         ),
